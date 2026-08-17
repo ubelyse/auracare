@@ -1,0 +1,22 @@
+# Database
+DB_USER=mvura_prod
+DB_PASSWORD=secure_password_here
+
+# Redis
+REDIS_PASSWORD=redis_secure_password
+
+# Encryption
+AES_ENCRYPTION_KEY=your_base64_encoded_256_bit_key
+
+# JWT
+JWT_SECRET=your_jwt_secret_here
+
+# API Keys
+HUGGINGFACE_API_KEY=your_huggingface_api_key
+USSD_API_KEY=your_africastalking_api_key
+USSD_USERNAME=your_africastalking_username
+USSD_SHORT_CODE=12345
+
+# Email (for MFA)
+EMAIL_USERNAME=your_email
+EMAIL_PASSWORD=your_email_password

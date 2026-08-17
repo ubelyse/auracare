@@ -1,0 +1,126 @@
+/*
+  MVURA design tokens.
+
+  Three role worlds, each with its own personality — not just a hue swap:
+  - patient:  calm, warm, spacious. Someone anxious or elderly should feel at ease.
+  - doctor:   quiet neutral canvas. Color is reserved for priority, not decoration.
+  - admin:    structured, precise, data-dense. Graphite + amber for attention.
+*/
+
+:root {
+  /* Shared scale, all worlds pull from this */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-2: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --font-body: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* ---------- PATIENT ---------- */
+.theme-patient {
+  --bg: #FBF7EF;              /* warm sand, not sterile white */
+  --surface: #FFFFFF;
+  --surface-raised: #FFFDF8;
+  --text-primary: #2B241C;
+  --text-secondary: #6B6154;
+  --border: #EAE0CC;
+  --accent: #C2703D;          /* terracotta */
+  --accent-strong: #9E571F;
+  --accent-tint: #F3E3D2;
+  --success: #4C7A5E;
+  --success-tint: #E4EFE7;
+  --warning: #B8860B;
+  --warning-tint: #FBF0D6;
+  --danger: #B14545;
+  --danger-tint: #F8E3E3;
+  --font-display: 'Sora', var(--font-body);
+}
+
+/* ---------- DOCTOR ---------- */
+.theme-doctor {
+  --bg: #F4F6F7;               /* quiet neutral — not blue-tinted like before */
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  --text-primary: #17212B;
+  --text-secondary: #5B6B78;
+  --border: #DCE3E7;
+  --accent: #0E6B63;           /* clinical teal, used sparingly */
+  --accent-strong: #0A5049;
+  --accent-tint: #DCEEEC;
+  --success: #2F7D5E;
+  --success-tint: #E1F0E7;
+  --warning: #B9740C;
+  --warning-tint: #FBEED8;
+  --danger: #C23B34;
+  --danger-tint: #FAE1DF;
+  --priority-emergency: #C23B34;
+  --priority-high: #C97A1F;
+  --priority-medium: #B9740C;
+  --priority-low: #6B7A85;
+  --font-display: var(--font-body);
+}
+
+/* ---------- STAFF (reception / front desk) ---------- */
+.theme-staff {
+  --bg: #F5F4F8;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  --text-primary: #211D2E;
+  --text-secondary: #625C72;
+  --border: #E1DEEA;
+  --accent: #5B3E9E;
+  --accent-strong: #452E7A;
+  --accent-tint: #EBE5F7;
+  --success: #2F7D5E;
+  --success-tint: #E1F0E7;
+  --warning: #B9740C;
+  --warning-tint: #FBEED8;
+  --danger: #B0362F;
+  --danger-tint: #F7E0DE;
+  --font-display: var(--font-body);
+}
+
+/* ---------- ADMIN (facility + district) ---------- */
+.theme-admin {
+  --bg: #F1F2F5;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  --text-primary: #1A1D26;
+  --text-secondary: #5C6270;
+  --border: #DFE1E8;
+  --accent: #33415C;           /* graphite navy */
+  --accent-strong: #1F2937;
+  --accent-tint: #E4E7ED;
+  --highlight: #C77D22;        /* amber, used only for things needing attention */
+  --highlight-tint: #F7E9D4;
+  --success: #2F7D5E;
+  --success-tint: #E1F0E7;
+  --warning: #B9740C;
+  --warning-tint: #FBEED8;
+  --danger: #B0362F;
+  --danger-tint: #F7E0DE;
+  --font-display: var(--font-body);
+}
+
+/* ---------- BRAND (login / register — no role known yet) ---------- */
+.theme-brand {
+  --bg: #F6F3EC;
+  --surface: #FFFFFF;
+  --text-primary: #22201B;
+  --text-secondary: #6B6459;
+  --border: #E6E0D4;
+  --accent: #2F6B5E;           /* deep teal-green, sits between all three worlds */
+  --accent-strong: #234F45;
+  --accent-tint: #E1EBE7;
+  --danger: #B14545;
+  --danger-tint: #F8E3E3;
+  --font-display: 'Sora', var(--font-body);
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text-primary);
+}

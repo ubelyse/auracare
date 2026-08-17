@@ -1,0 +1,16 @@
+package com.mvura.model;
+
+public enum LabTestType {
+    COMPLETE_BLOOD_COUNT,
+    MALARIA_TEST,
+    URINALYSIS,
+    BLOOD_GLUCOSE,
+    HIV_TEST,
+    PREGNANCY_TEST,
+    LIVER_FUNCTION_TEST,
+    KIDNEY_FUNCTION_TEST,
+    STOOL_ANALYSIS,
+    COVID_19_TEST,
+    TYPHOID_TEST,
+    OTHER
+}

@@ -1,0 +1,118 @@
+spring:
+  application:
+    name: mvura-backend
+  mvc:
+    async:
+      request-timeout: 600000  # 10 minutes (600,000 ms)
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mvura_db
+    username: postgres
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 6000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+  session:
+    store-type: redis
+    timeout: 1800s
+    redis:
+      namespace: mvura:session
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:belyseuwamb@gmail.com}
+    password: ${MAIL_PASSWORD:jkqx sznm qzcb fllq}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+    test-connection: false
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:UA9yo/54AQxTAA9T7/zcgirvNfzbb7Ypl+yvLXT/A5M=}
+    expiration: 86400000 # 24 hours
+  rate-limit:
+    max-attempts: 5
+    window-minutes: 15
+
+server:
+  port: 8080
+  error:
+    include-message: always
+    include-binding-errors: always
+
+logging:
+  level:
+    com.mvura: INFO
+    org.springframework.security: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: INFO
+
+app:
+  email:
+    from: ${MAIL_USERNAME:belyseuwamb@gmail.com}
+  api-url: ${API_URL:http://localhost:8080}
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  mfa:
+    issuer: MVURA-Health
+    recovery-codes:
+      count: 10
+    rate-limit:
+      max-attempts: 5
+      lockout-minutes: 15
+    session:
+      timeout-minutes: 5
+  ai:
+    huggingface:
+      api-key: ${HUGGINGFACE_API_KEY:}
+      base-url: https://router.huggingface.co/v1
+      model: mistralai/Mistral-7B-Instruct-v0.1
+  features:
+    allow-registration: true
+    require-mfa: true
+  encryption:
+    aes-key: ${AES_ENCRYPTION_KEY:}
+    use-vault: ${USE_VAULT:false}
+  security:
+    audit:
+      blockchain-enabled: true
+      retention-days: 365
+
+
+
+  # ===== ADD THIS: USSD CONFIGURATION =====
+  ussd:
+    username: ${USSD_USERNAME:}                    # Your Africa's Talking username
+#    api-key: ${USSD_API_KEY:}                      # Your Africa's Talking API key
+    short-code: ${USSD_SHORT_CODE}           # Your USSD short code
+    api-url: https://api.africastalking.com/version1/messaging
+    rate-limit:
+      window-seconds: 60                           # Time window in seconds
+      max-requests: 5                              # Max requests per minute
+    session:
+      timeout-minutes: 5                           # Session timeout in minutes

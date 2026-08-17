@@ -1,0 +1,112 @@
+/* src/index.css */
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*!* Role-based theme classes *!*/
+/*.theme-patient {*/
+/*    --primary: #22c55e;*/
+/*    --primary-hover: #16a34a;*/
+/*    --primary-light: #dcfce7;*/
+/*    --primary-dark: #15803d;*/
+/*    --background: #f0fdf4;*/
+/*}*/
+
+/*.theme-doctor {*/
+/*    --primary: #3b82f6;*/
+/*    --primary-hover: #2563eb;*/
+/*    --primary-light: #dbeafe;*/
+/*    --primary-dark: #1e40af;*/
+/*    --background: #eff6ff;*/
+/*}*/
+
+/*.theme-staff {*/
+/*    --primary: #8b5cf6;*/
+/*    --primary-hover: #7c3aed;*/
+/*    --primary-light: #ede9fe;*/
+/*    --primary-dark: #5b21b6;*/
+/*    --background: #f5f3ff;*/
+/*}*/
+
+/*.theme-admin {*/
+/*    --primary: #ef4444;*/
+/*    --primary-hover: #dc2626;*/
+/*    --primary-light: #fecaca;*/
+/*    --primary-dark: #991b1b;*/
+/*    --background: #fef2f2;*/
+/*}*/
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.pulse-dot {
+    animation: pulse 2s infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Card hover effects */
+.hover-card {
+    transition: all 0.3s ease;
+}
+
+.hover-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* Status badges */
+.badge {
+    @apply px-2 py-1 text-xs font-semibold rounded-full;
+}
+
+.badge-success {
+    @apply bg-green-100 text-green-800;
+}
+
+.badge-warning {
+    @apply bg-yellow-100 text-yellow-800;
+}
+
+.badge-danger {
+    @apply bg-red-100 text-red-800;
+}
+
+.badge-info {
+    @apply bg-blue-100 text-blue-800;
+}
+
+.badge-purple {
+    @apply bg-purple-100 text-purple-800;
+}
