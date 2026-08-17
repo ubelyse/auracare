@@ -8,7 +8,7 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/mvura_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
-#    driver-class-name: org.postgresql.Driver
+  #    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
@@ -103,13 +103,11 @@ app:
       blockchain-enabled: true
       retention-days: 365
 
-
-
-  # ===== ADD THIS: USSD CONFIGURATION =====
+  # ===== USSD CONFIGURATION =====
   ussd:
     username: ${USSD_USERNAME:}                    # Your Africa's Talking username
-#    api-key: ${USSD_API_KEY:}                      # Your Africa's Talking API key
-    short-code: ${USSD_SHORT_CODE}           # Your USSD short code
+    api-key: ${USSD_API_KEY:}                      # Your Africa's Talking API key
+    short-code: ${USSD_SHORT_CODE:}                # Your USSD short code
     api-url: https://api.africastalking.com/version1/messaging
     rate-limit:
       window-seconds: 60                           # Time window in seconds
