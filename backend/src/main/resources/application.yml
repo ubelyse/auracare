@@ -7,8 +7,8 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/mvura_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
-  #    driver-class-name: org.postgresql.Driver
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:postgres}}
+    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
@@ -61,7 +61,7 @@ security:
     window-minutes: 15
 
 server:
-  port: 8080
+  port: ${PORT:8080}
   error:
     include-message: always
     include-binding-errors: always
@@ -79,7 +79,7 @@ app:
   api-url: ${API_URL:http://localhost:8080}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   mfa:
-    issuer: MVURA-Health
+    issuer: AuraCare-Health
     recovery-codes:
       count: 10
     rate-limit:
