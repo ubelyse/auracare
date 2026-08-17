@@ -14,11 +14,9 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/**")
-                        .allowedOrigins(
-                                "https://aura-care.vercel.app",        // Your Vercel app URL
-                                "https://aura-care-git-*.vercel.app",  // Preview deployments
-                                "http://localhost:3000",               // Next.js local dev
-                                "http://localhost:5173"                // Vite local dev
+                        .allowedOriginPatterns(
+                                "https://*.vercel.app",     // All Vercel deployments
+                                "http://localhost:*"          // All local ports
                         )
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                         .allowedHeaders("*")
