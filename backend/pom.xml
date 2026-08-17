@@ -84,13 +84,13 @@
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
+            <version>3.1.8</version>
         </dependency>
 
         <!-- ===== DATABASE ===== -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -159,13 +159,6 @@
             <groupId>com.github.AfricasTalkingLtd.africastalking-java</groupId>
             <artifactId>core</artifactId>
             <version>3.4.11</version>
-        </dependency>
-
-        <!-- Maven -->
-        <dependency>
-            <groupId>com.github.ben-manes.caffeine</groupId>
-            <artifactId>caffeine</artifactId>
-            <version>3.1.8</version>
         </dependency>
 
         <dependency>
