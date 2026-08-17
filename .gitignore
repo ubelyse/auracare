@@ -1,10 +1,32 @@
-HELP.md
-target/
+# ============================================
+# BACKEND (Spring Boot)
+# ============================================
+
+# Compiled output
+**/target/
+**/out/
+**/build/
+
+# Maven wrapper
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+# Logs
+*.log
+*.pid
+*.gz
+logs/
+**/logs/
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+.idea_modules/
+
+# IDE - Eclipse / STS
 .apt_generated
 .classpath
 .factorypath
@@ -13,21 +35,119 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
+# IDE - NetBeans
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
+# IDE - VS Code
 .vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+application-local.properties
+application-dev.properties
+application-staging.properties
+
+# Database
+*.db
+*.sqlite
+*.h2.db
+*.h2.mv.db
+*.lock
+
+# JAR/WAR
+*.jar
+*.war
+*.ear
+
+# Backup files
+*.bak
+*.tmp
+*.temp
+
+# ============================================
+# FRONTEND (React)
+# ============================================
+
+# Node modules
+frontend/node_modules/
+node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+dist/
+build/
+
+# Vite / Webpack cache
+frontend/.vite/
+frontend/.cache/
+.vite/
+.cache/
+
+# Environment variables (frontend)
+frontend/.env.local
+frontend/.env.production
+frontend/.env.staging
+
+# Testing
+frontend/coverage/
+coverage/
+frontend/.nyc_output/
+
+# Misc
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# ============================================
+# GENERAL
+# ============================================
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Kubernetes
+*.kubeconfig
+
+# Misc
+*.pem
+*.key
+*.crt
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+.directory
