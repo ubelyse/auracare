@@ -10,8 +10,8 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-# Runtime stage
-FROM openjdk:21-jdk-slim
+# Runtime stage - FIXED: Use eclipse-temurin instead of openjdk
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 # Copy the built JAR
