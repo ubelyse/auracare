@@ -1,6 +1,6 @@
 package com.mvura.repository;
 
-import com.mvura.model.Priority;  // ← ADD THIS IMPORT
+import com.mvura.model.Priority;
 import com.mvura.model.Ticket;
 import com.mvura.model.TicketStatus;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +15,7 @@ import java.util.UUID;
 
 public interface TicketRepository extends JpaRepository<Ticket, UUID> {
 
+    // ===== BASIC FINDERS =====
     Optional<Ticket> findByTicketNumber(String ticketNumber);
 
     // ===== ACTIVE TICKET BY STATUS (NOT DISCHARGED OR CANCELLED) =====
@@ -27,7 +28,6 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
     @Query("SELECT t FROM Ticket t WHERE t.patient.id = :patientId AND t.status NOT IN ('DISCHARGED', 'CANCELLED') ORDER BY t.createdAt DESC")
     List<Ticket> findAllActiveTicketsForPatient(@Param("patientId") UUID patientId);
 
-    // ===== GET ALL TICKETS FOR PATIENT (FOR DEBUGGING) =====
     @Query("SELECT t FROM Ticket t WHERE t.patient.id = :patientId ORDER BY t.createdAt DESC")
     List<Ticket> findAllByPatientId(@Param("patientId") UUID patientId);
 
@@ -41,7 +41,6 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
             @Param("departmentId") UUID departmentId
     );
 
-    // ===== QUEUE QUERIES WITH PAGINATION =====
     @Query("SELECT t FROM Ticket t WHERE t.facility.id = :facilityId AND t.department.id = :departmentId AND t.active = true AND t.status NOT IN ('DISCHARGED', 'CANCELLED') ORDER BY t.priority DESC, t.createdAt ASC")
     List<Ticket> findActiveTicketsByFacilityAndDepartmentWithPagination(
             @Param("facilityId") UUID facilityId,
@@ -110,7 +109,6 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
             @Param("departmentId") UUID departmentId
     );
 
-    // ===== COUNT ACTIVE QUEUE TICKETS (Excludes CONSULTATION_DONE from count) =====
     @Query("SELECT COUNT(t) FROM Ticket t WHERE t.facility.id = :facilityId AND t.department.id = :departmentId AND t.active = true AND t.status NOT IN ('DISCHARGED', 'CANCELLED', 'CONSULTATION_DONE')")
     int countActiveQueueTickets(
             @Param("facilityId") UUID facilityId,
@@ -124,11 +122,10 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
             @Param("departmentId") UUID departmentId
     );
 
-    // ===== GET ALL QUEUE TICKETS FOR DISPLAY (Includes IN_CONSULTATION and CONSULTATION_DONE) =====
+    // ===== GET ALL QUEUE TICKETS FOR DISPLAY =====
     @Query("SELECT t FROM Ticket t WHERE t.facility.id = :facilityId AND t.department.id = :departmentId AND t.active = true AND t.status NOT IN ('DISCHARGED', 'CANCELLED') ORDER BY CASE WHEN t.status = 'CONSULTATION_DONE' THEN 1 WHEN t.status = 'IN_CONSULTATION' THEN 2 ELSE 0 END, t.priority DESC, t.createdAt ASC")
     List<Ticket> findAllQueueTicketsForDisplay(
             @Param("facilityId") UUID facilityId,
             @Param("departmentId") UUID departmentId
     );
-
 }

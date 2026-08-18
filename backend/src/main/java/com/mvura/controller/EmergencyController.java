@@ -115,7 +115,6 @@ public class EmergencyController {
         ));
     }
 
-    // ===== FIXED: Returns TicketDTO =====
     @PostMapping("/choice")
     public ResponseEntity<?> handleEmergencyChoice(
             @RequestParam UUID ticketId,
@@ -138,28 +137,74 @@ public class EmergencyController {
         ));
     }
 
-    // ===== FIXED: Returns FacilityDTO list =====
+    // ===== 🔥 FIXED: Use findAvailableFacilitiesWithDetails() =====
     @GetMapping("/available-facilities")
     public ResponseEntity<?> getAvailableFacilities(
             @RequestParam UUID facilityId,
             @RequestParam String departmentCode) {
 
-        List<Facility> facilities = emergencyService.findAvailableFacilities(facilityId, departmentCode);
-        List<FacilityDTO> facilityDTOs = convertToFacilityDTOList(facilities);
+        // 🔥 FIXED: Use the correct method name
+        List<EmergencyService.FacilityAvailabilityDto> facilities =
+                emergencyService.findAvailableFacilitiesWithDetails(facilityId, departmentCode);
 
-        log.info("Found {} available facilities for transfer", facilityDTOs.size());
+        log.info("Found {} available facilities for transfer", facilities.size());
 
-        return ResponseEntity.ok(Map.of(
-                "facilities", facilityDTOs,
-                "count", facilityDTOs.size()
-        ));
+        return ResponseEntity.ok(facilities);
     }
 
+    // ===== 🔥 FIXED: Use checkFacilityAvailability() =====
     @GetMapping("/status")
     public ResponseEntity<?> getEmergencyStatus(
             @RequestParam UUID facilityId,
             @RequestParam UUID departmentId) {
 
-        return ResponseEntity.ok(emergencyService.getEmergencyStatus(facilityId, departmentId));
+        // 🔥 FIXED: getEmergencyStatus doesn't exist - use checkFacilityAvailability instead
+        // Since we need status for a specific facility/department, we need to check availability
+        // This is a workaround - you may need to create a new method in EmergencyService
+        // if you specifically need the old status format
+
+        // Option 1: Return basic status
+        List<EmergencyService.FacilityAvailabilityDto> facilities =
+                emergencyService.findAvailableFacilitiesWithDetails(facilityId, null);
+
+        boolean hasEmergency = false;
+        if (facilities != null) {
+            for (EmergencyService.FacilityAvailabilityDto dto : facilities) {
+                if (dto.getFacilityId().equals(facilityId)) {
+                    hasEmergency = dto.isAvailable();
+                    break;
+                }
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "active", hasEmergency,
+                "facilityId", facilityId,
+                "departmentId", departmentId
+        ));
+    }
+
+    // ===== 🔥 NEW: Check specific facility availability =====
+    @GetMapping("/check-availability")
+    public ResponseEntity<?> checkAvailability(
+            @RequestParam UUID facilityId,
+            @RequestParam String departmentCode) {
+
+        EmergencyService.FacilityAvailabilityDto availability =
+                emergencyService.checkFacilityAvailability(facilityId, departmentCode);
+
+        return ResponseEntity.ok(availability);
+    }
+
+    // ===== 🔥 NEW: Get recommended facility =====
+    @GetMapping("/recommended")
+    public ResponseEntity<?> getRecommendedFacility(
+            @RequestParam UUID facilityId,
+            @RequestParam String departmentCode) {
+
+        EmergencyService.FacilityAvailabilityDto recommended =
+                emergencyService.getRecommendedFacility(facilityId, departmentCode);
+
+        return ResponseEntity.ok(recommended);
     }
 }

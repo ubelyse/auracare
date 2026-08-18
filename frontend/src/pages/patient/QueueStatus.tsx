@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ticketService } from '../../services/ticket';
+import { ticketService, FacilityAvailability } from '../../services/ticket';
 import { sseService } from '../../services/sse';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -18,7 +18,6 @@ interface TicketStatus {
     departmentId?: string;
     departmentName?: string;
     departmentCode?: string;
-    // ===== ADD THESE FIELDS =====
     message?: string;
     isFirstInLine?: boolean;
     isNearFront?: boolean;
@@ -27,7 +26,6 @@ interface TicketStatus {
     doctorName?: string;
     triageScore?: number;
     isBooked?: boolean;
-    // ===========================
 }
 
 interface EmergencyData {
@@ -39,11 +37,8 @@ interface EmergencyData {
     };
 }
 
-interface Facility {
-    id: string;
-    name: string;
-    code: string;
-}
+// 🔥 UPDATED: Use imported FacilityAvailability type
+// No need to redefine it here
 
 export const QueueStatus: React.FC = () => {
     const { ticketNumber } = useParams<{ ticketNumber: string }>();
@@ -54,10 +49,11 @@ export const QueueStatus: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [showEmergencyOptions, setShowEmergencyOptions] = useState(false);
     const [emergencyData, setEmergencyData] = useState<EmergencyData | null>(null);
-    const [availableFacilities, setAvailableFacilities] = useState<Facility[]>([]);
+    const [availableFacilities, setAvailableFacilities] = useState<FacilityAvailability[]>([]);
     const [selectedFacility, setSelectedFacility] = useState<string>('');
     const [isProcessing, setIsProcessing] = useState(false);
     const isMounted = useRef(true);
+    const sseUnsubscribeRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         isMounted.current = true;
@@ -67,11 +63,18 @@ export const QueueStatus: React.FC = () => {
             return;
         }
 
-        loadStatus();
-        connectSSE();
+        // 🔥 FIXED: Handle async properly
+        const init = async () => {
+            await loadStatus();
+            connectSSE();
+        };
+        init();
 
         return () => {
             isMounted.current = false;
+            if (sseUnsubscribeRef.current) {
+                sseUnsubscribeRef.current();
+            }
             sseService.disconnect();
         };
     }, [ticketNumber]);
@@ -79,23 +82,36 @@ export const QueueStatus: React.FC = () => {
     const connectSSE = () => {
         if (!ticketNumber) return;
 
-        sseService.connectToTicket(
+        // Unsubscribe from previous connection if any
+        if (sseUnsubscribeRef.current) {
+            sseUnsubscribeRef.current();
+        }
+
+        sseUnsubscribeRef.current = sseService.connectToTicket(
             ticketNumber,
-            (data) => {
+            (data: any) => {
                 if (!isMounted.current) return;
 
                 console.log('📡 SSE data received:', data);
 
-                // Update status with SSE data
-                setStatus(prev => ({
-                    ...prev,
+                // 🔥 FIXED: Type-safe doctorName check
+                const updatedData: TicketStatus = {
+                    ...status,
                     ...data
-                }));
+                };
+
+                // Only set doctorName if it exists in data
+                if (data.doctorName) {
+                    updatedData.doctorName = data.doctorName;
+                }
+
+                setStatus(updatedData);
 
                 // ===== CHECK IF EMERGENCY MODE IS DEACTIVATED =====
-                // If status changed from emergency-related status back to normal
-                if (data.status === 'TRIAGED' || data.status === 'IN_CONSULTATION' || data.status === 'LAB_PENDING' || data.status === 'LAB_COMPLETED') {
-                    // Close emergency modal if it's open
+                if (data.status === 'TRIAGED' ||
+                    data.status === 'IN_CONSULTATION' ||
+                    data.status === 'LAB_PENDING' ||
+                    data.status === 'LAB_COMPLETED') {
                     if (showEmergencyOptions) {
                         console.log('🔄 Emergency modal closed - status changed to:', data.status);
                         setShowEmergencyOptions(false);
@@ -107,7 +123,6 @@ export const QueueStatus: React.FC = () => {
                 // ===== CHECK IF DOCTOR WAS REASSIGNED =====
                 if (data.doctorName) {
                     console.log('👨‍⚕️ Doctor assigned/reassigned:', data.doctorName);
-                    // If emergency modal is open and doctor changed, close it
                     if (showEmergencyOptions) {
                         setShowEmergencyOptions(false);
                         setEmergencyData(null);
@@ -119,22 +134,33 @@ export const QueueStatus: React.FC = () => {
                 if (data.status === 'IN_CONSULTATION') {
                     toast.success('👨‍⚕️ A doctor is now seeing you!');
                 } else if (data.status === 'LAB_PENDING') {
-                    toast.info('🔬 Lab test ordered. You will be called shortly.');
+                    // 🔥 FIXED: Use toast() instead of toast.info()
+                    toast('🔬 Lab test ordered. You will be called shortly.', {
+                        icon: '🔬',
+                        duration: 4000,
+                    });
                 } else if (data.status === 'LAB_COMPLETED') {
-                    toast.info('✅ Lab results ready.');
+                    toast('✅ Lab results ready.', {
+                        icon: '✅',
+                        duration: 4000,
+                    });
                 } else if (data.status === 'CONSULTATION_DONE') {
                     toast.success('✅ Consultation complete. Please proceed to billing.');
                 } else if (data.status === 'PAYMENT_PENDING') {
-                    toast.info('💰 Bill generated. Please proceed to payment.');
+                    toast('💰 Bill generated. Please proceed to payment.', {
+                        icon: '💰',
+                        duration: 4000,
+                    });
                 } else if (data.status === 'DISCHARGED') {
                     toast.success('🎉 Your visit is complete. Thank you!');
                     setTimeout(() => navigate('/patient/dashboard'), 3000);
                 }
             },
-            (emergencyData) => {
+            (emergencyData: EmergencyData) => {
                 if (!isMounted.current) return;
                 console.log('🚨 Emergency alert received:', emergencyData);
-                handleEmergencyAlert(emergencyData);
+                // 🔥 FIXED: Handle async properly
+                handleEmergencyAlert(emergencyData).catch(console.error);
             }
         );
     };
@@ -204,8 +230,6 @@ export const QueueStatus: React.FC = () => {
         console.log('🔴🔴🔴 EMERGENCY - status object:', status);
         console.log('🔴🔴🔴 EMERGENCY - facilityId:', status?.facilityId);
         console.log('🔴🔴🔴 EMERGENCY - departmentCode:', status?.departmentCode);
-        console.log('🔴🔴🔴 EMERGENCY - departmentId:', status?.departmentId);
-        console.log('🔴🔴🔴 EMERGENCY - departmentName:', status?.departmentName);
 
         // Validate required fields
         if (!status?.facilityId) {
@@ -235,13 +259,16 @@ export const QueueStatus: React.FC = () => {
             if (isMounted.current) {
                 console.log('🔴🔴🔴 Available facilities:', facilities);
                 setAvailableFacilities(facilities || []);
+
+                // Auto-select the best facility if available
+                if (facilities && facilities.length > 0) {
+                    setSelectedFacility(facilities[0].facilityId);
+                }
             }
         } catch (error: any) {
             console.error('🔴🔴🔴 Failed to fetch available facilities:', error);
             console.error('🔴🔴🔴 Error response:', error.response?.data);
-            console.error('🔴🔴🔴 Error status:', error.response?.status);
 
-            // Show specific error message to user
             if (error.response?.status === 400) {
                 toast.error('Missing facility or department information. Please refresh.');
             } else {
@@ -304,7 +331,10 @@ export const QueueStatus: React.FC = () => {
             // If internal transfer failed because no other doctor available
             if (choice === 'INTERNAL_TRANSFER' && errorMsg.includes('No other doctor')) {
                 // Keep emergency modal open with updated message
-                toast.info('No other doctor available. Please choose "Wait" or "External Transfer".');
+                toast('No other doctor available. Please choose "Wait" or "External Transfer".', {
+                    icon: 'ℹ️',
+                    duration: 5000,
+                });
             } else {
                 // For other errors, close modal and reload
                 setShowEmergencyOptions(false);
@@ -420,10 +450,11 @@ export const QueueStatus: React.FC = () => {
 
     const statusDisplay = getStatusDisplay(status.status);
 
+    // ===== EMERGENCY MODAL WITH IMPROVED FACILITY DISPLAY =====
     if (showEmergencyOptions) {
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+                <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
                     <div className="text-center">
                         <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
                             <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -439,7 +470,7 @@ export const QueueStatus: React.FC = () => {
                             <button
                                 onClick={() => handleEmergencyChoice('WAIT')}
                                 disabled={isProcessing}
-                                className="w-full py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
+                                className="w-full py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 ⏳ Wait for Doctor
                                 <p className="text-xs text-gray-500 mt-1">Continue waiting in queue</p>
@@ -448,36 +479,98 @@ export const QueueStatus: React.FC = () => {
                             <button
                                 onClick={() => handleEmergencyChoice('INTERNAL_TRANSFER')}
                                 disabled={isProcessing}
-                                className="w-full py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
+                                className="w-full py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 🔄 Internal Transfer
                                 <p className="text-xs text-gray-500 mt-1">See another doctor at this facility</p>
                             </button>
 
                             <div className="border-t border-gray-200 pt-3">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-3">
                                     Transfer to Another Facility
                                 </label>
-                                <select
-                                    value={selectedFacility}
-                                    onChange={(e) => setSelectedFacility(e.target.value)}
-                                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                                    disabled={isProcessing}
-                                >
-                                    <option value="">Select facility</option>
-                                    {availableFacilities.map((facility) => (
-                                        <option key={facility.id} value={facility.id}>
-                                            {facility.name}
-                                        </option>
-                                    ))}
-                                </select>
+
+                                {/* Facility list with rich metadata */}
+                                {availableFacilities.length === 0 ? (
+                                    <div className="text-center py-4">
+                                        <p className="text-sm text-gray-500">
+                                            No alternative facilities available
+                                        </p>
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            Try selecting "Wait" or "Internal Transfer" instead
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                                        {availableFacilities.map((facility, index) => (
+                                            <div
+                                                key={facility.facilityId}
+                                                className={`flex items-start p-3 border rounded-lg cursor-pointer transition-colors ${
+                                                    selectedFacility === facility.facilityId
+                                                        ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200'
+                                                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                                } ${!facility.available ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                onClick={() => facility.available && setSelectedFacility(facility.facilityId)}
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    name="facility"
+                                                    value={facility.facilityId}
+                                                    checked={selectedFacility === facility.facilityId}
+                                                    onChange={() => setSelectedFacility(facility.facilityId)}
+                                                    className="h-4 w-4 text-primary-600 flex-shrink-0 mt-1"
+                                                    disabled={isProcessing || !facility.available}
+                                                />
+                                                <div className="flex-1 ml-3 min-w-0">
+                                                    <div className="flex items-center flex-wrap gap-2">
+                                                        <span className="font-medium text-sm truncate">
+                                                            {facility.facilityName}
+                                                        </span>
+                                                        {index === 0 && (
+                                                            <span className="flex-shrink-0 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                                                                ⭐ Best Match
+                                                            </span>
+                                                        )}
+                                                        {facility.estimatedWaitMinutes < 15 && facility.queueLength < 3 && (
+                                                            <span className="flex-shrink-0 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                                                🔥 Fastest
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                                                        <div>👨‍⚕️ {facility.availableDoctorCount} doctors available</div>
+                                                        <div>👥 {facility.queueLength} patients ahead</div>
+                                                        <div>⏱️ ~{facility.estimatedWaitMinutes} min wait</div>
+                                                        {facility.address && (
+                                                            <div className="text-gray-400">📍 {facility.address}</div>
+                                                        )}
+                                                    </div>
+                                                    {facility.unavailabilityReason && (
+                                                        <div className="text-xs text-red-500 mt-1">
+                                                            ⚠️ {facility.unavailabilityReason}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
                                 <button
                                     onClick={() => handleEmergencyChoice('EXTERNAL_TRANSFER')}
-                                    disabled={!selectedFacility || isProcessing}
-                                    className="w-full mt-2 py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled={!selectedFacility || isProcessing || availableFacilities.length === 0}
+                                    className="w-full mt-3 py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >
-                                    🏥 Transfer Now
+                                    {isProcessing ? 'Processing...' : '🏥 Transfer Now'}
                                 </button>
+                                {availableFacilities.length > 0 && !selectedFacility && (
+                                    <p className="text-xs text-amber-600 mt-1">⚠️ Please select a facility above</p>
+                                )}
+                                {availableFacilities.length === 0 && (
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        No facilities available for transfer
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -486,6 +579,7 @@ export const QueueStatus: React.FC = () => {
         );
     }
 
+    // ===== NORMAL QUEUE STATUS DISPLAY =====
     return (
         <div className="max-w-md mx-auto p-6">
             <div className="bg-white rounded-lg shadow-lg p-8">
@@ -496,7 +590,7 @@ export const QueueStatus: React.FC = () => {
 
                     <h2 className="text-xl font-semibold text-gray-900">Your Queue Status</h2>
 
-                    <div className="mt-4 flex justify-center space-x-4">
+                    <div className="mt-4 flex justify-center space-x-4 flex-wrap gap-2">
                         <span className={`px-3 py-1 rounded-full text-white text-sm font-medium ${getPriorityColor(status.priority)}`}>
                             {status.priority}
                         </span>
@@ -505,9 +599,16 @@ export const QueueStatus: React.FC = () => {
                         </span>
                     </div>
 
+                    {/* 🔥 FIXED: Safe access to doctorName */}
                     {status.doctorName && (
                         <div className="mt-2 text-sm text-gray-600">
                             👨‍⚕️ Doctor: <span className="font-medium">{status.doctorName}</span>
+                        </div>
+                    )}
+
+                    {status.facilityName && (
+                        <div className="mt-1 text-xs text-gray-500">
+                            🏥 {status.facilityName} • {status.departmentName || ''}
                         </div>
                     )}
 
@@ -542,7 +643,6 @@ export const QueueStatus: React.FC = () => {
                             )}
                         </div>
                     ) : (
-                        // Fallback to hard-coded status message if no message from backend
                         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                             <div className="flex items-center justify-center space-x-2">
                                 <span className="text-2xl">{statusDisplay.icon}</span>
@@ -577,7 +677,6 @@ export const QueueStatus: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* ===== QUICK TIPS FOR FIRST PATIENT ===== */}
                     {status.isFirstInLine && (
                         <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                             <div className="flex items-start space-x-2">
@@ -594,7 +693,6 @@ export const QueueStatus: React.FC = () => {
                         </div>
                     )}
 
-                    {/* ===== LONG WAIT TIPS ===== */}
                     {status.hasLongWait && (
                         <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
                             <div className="flex items-start space-x-2">
@@ -626,7 +724,7 @@ export const QueueStatus: React.FC = () => {
 
                     <button
                         onClick={() => navigate('/patient/dashboard')}
-                        className="mt-6 w-full py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                        className="mt-6 w-full py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
                     >
                         Back to Dashboard
                     </button>

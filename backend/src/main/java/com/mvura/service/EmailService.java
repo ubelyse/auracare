@@ -39,15 +39,25 @@ public class EmailService {
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
 
+    @Value("${app.email.provider:gmail}")
+    private String emailProvider;
+
     private Resend resend;
 
     @PostConstruct
     public void init() {
-        if (resendApiKey != null && !resendApiKey.trim().isEmpty()) {
-            this.resend = new Resend(resendApiKey.trim());
-            log.info("Resend HTTP API initialized for email service.");
+        // 🔥 FIXED: Only initialize Resend if provider is 'resend' AND API key exists
+        if ("resend".equalsIgnoreCase(emailProvider) && resendApiKey != null && !resendApiKey.trim().isEmpty()) {
+            try {
+                this.resend = new Resend(resendApiKey.trim());
+                log.info("✅ Resend API initialized for email service (Render deployment)");
+            } catch (Exception e) {
+                log.warn("⚠️ Failed to initialize Resend: {}. Falling back to SMTP.", e.getMessage());
+                this.resend = null;
+            }
         } else {
-            log.warn("Resend API key not found. Falling back to JavaMailSender (SMTP).");
+            log.info("✅ Using Gmail SMTP for email service (Local development)");
+            this.resend = null;
         }
     }
 
@@ -272,6 +282,7 @@ public class EmailService {
     // ==================== PUBLIC HELPER METHODS ====================
 
     public void sendHtmlEmail(String to, String subject, String body) throws MessagingException {
+        // 🔥 FIXED: Only use Resend if initialized
         if (resend != null) {
             try {
                 CreateEmailOptions params = CreateEmailOptions.builder()
@@ -281,21 +292,28 @@ public class EmailService {
                         .html(body)
                         .build();
                 resend.emails().send(params);
-                log.info("Email successfully sent via Resend API to: {}", to);
+                log.info("✅ Email sent via Resend API to: {}", to);
                 return;
             } catch (Exception e) {
-                log.error("Resend API failed, falling back to SMTP for {}: {}", to, e.getMessage());
+                log.error("❌ Resend API failed for {}: {}. Falling back to SMTP.", to, e.getMessage());
+                // Fall through to SMTP
             }
         }
 
         // Fallback or local dev SMTP implementation
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-        helper.setFrom(fromEmail);
-        helper.setTo(to);
-        helper.setSubject(subject);
-        helper.setText(body, true);
-        mailSender.send(message);
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(body, true);
+            mailSender.send(message);
+            log.info("✅ Email sent via SMTP (Gmail) to: {}", to);
+        } catch (Exception e) {
+            log.error("❌ Failed to send email via SMTP to {}: {}", to, e.getMessage());
+            throw new MessagingException("Failed to send email to " + to, e);
+        }
     }
 
     // ==================== PRIVATE HELPER METHODS ====================

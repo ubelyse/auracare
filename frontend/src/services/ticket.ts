@@ -1,16 +1,53 @@
 import api from './api';
 import { Ticket, CheckInRequest } from '../types/ticket';
-import { Facility } from './admin';
+
+// ===== UPDATED: Facility interface matching backend FacilityAvailabilityDto =====
+export interface FacilityAvailability {
+    facilityId: string;
+    facilityName: string;
+    address?: string;
+    phoneNumber?: string;
+    departmentId?: string;
+    departmentName?: string;
+    availableDoctorCount: number;
+    queueLength: number;
+    estimatedWaitMinutes: number;
+    score: number;
+    available: boolean;
+    unavailabilityReason?: string;
+}
+
+// ===== Keep existing Facility interface for other uses =====
+export interface Facility {
+    id: string;
+    name: string;
+    code: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    active: boolean;
+}
 
 interface TicketStatus {
+    id?: string;
     ticketNumber: string;
     status: string;
     priority: string;
     queuePosition: number;
     estimatedWaitMinutes: number;
     facilityId: string;
+    facilityName?: string;
     departmentId: string;
+    departmentName?: string;
     departmentCode: string;
+    message?: string;
+    isFirstInLine?: boolean;
+    isNearFront?: boolean;
+    hasLongWait?: boolean;
+    patientName?: string;
+    doctorName?: string;
+    triageScore?: number;
+    isBooked?: boolean;
 }
 
 interface DepartmentWithDoctors {
@@ -85,11 +122,13 @@ export const ticketService = {
         return response.data.doctors || [];
     },
 
-    async getAvailableFacilities(facilityId: string, departmentCode: string): Promise<Facility[]> {
+    // 🔥 FIXED: Returns array directly, not wrapped in a 'facilities' property
+    async getAvailableFacilities(facilityId: string, departmentCode: string): Promise<FacilityAvailability[]> {
         const response = await api.get('/emergency/available-facilities', {
             params: { facilityId, departmentCode }
         });
-        return response.data.facilities || [];
+        // Backend returns array directly
+        return response.data || [];
     },
 
     async getDepartmentsByFacility(facilityId: string): Promise<any[]> {
@@ -97,9 +136,14 @@ export const ticketService = {
         return response.data || [];
     },
 
+    // 🔥 FIXED: Proper request body format
     async handleEmergencyChoice(ticketId: string, choice: string, targetFacilityId?: string): Promise<EmergencyChoiceResult> {
         const response = await api.post('/emergency/choice', null, {
-            params: { ticketId, choice, targetFacilityId }
+            params: {
+                ticketId,
+                choice,
+                targetFacilityId
+            }
         });
         return response.data;
     }

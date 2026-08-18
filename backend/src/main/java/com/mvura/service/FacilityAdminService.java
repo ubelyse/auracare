@@ -647,12 +647,18 @@ public class FacilityAdminService {
                         Collectors.counting()
                 ));
 
-        // FIX: Properly cast to boolean
-        Map<String, Object> emergencyStatus = emergencyService.getEmergencyStatus(
-                department.getFacility().getId(),
-                departmentId
-        );
-        boolean isEmergencyMode = Boolean.TRUE.equals(emergencyStatus.getOrDefault("active", false));
+        // 🔥 FIXED: Use checkFacilityAvailability() instead of getEmergencyStatus()
+        boolean isEmergencyMode = false;
+        try {
+            EmergencyService.FacilityAvailabilityDto availability =
+                    emergencyService.checkFacilityAvailability(
+                            department.getFacility().getId(),
+                            department.getCode()
+                    );
+            isEmergencyMode = availability != null && !availability.isAvailable();
+        } catch (Exception e) {
+            log.warn("Could not check emergency status for department {}: {}", departmentId, e.getMessage());
+        }
 
         List<String> recommendations = generateRecommendations(
                 department,

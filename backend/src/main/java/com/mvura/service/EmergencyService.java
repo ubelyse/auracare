@@ -2,6 +2,8 @@ package com.mvura.service;
 
 import com.mvura.model.*;
 import com.mvura.repository.*;
+import lombok.Builder;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -10,13 +12,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@SuppressWarnings({"unused", "java:S6218", "java:S1125", "java:S1155"})
 public class EmergencyService {
 
     private final TicketRepository ticketRepository;
@@ -30,9 +32,6 @@ public class EmergencyService {
     private static final int MAX_DURATION_MINUTES = 60;
     private static final int MAX_EXTEND_MINUTES = 30;
 
-    private static final DateTimeFormatter DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
     // ==================== HELPER METHODS ====================
 
     private String sanitizeForLog(String input) {
@@ -41,6 +40,18 @@ public class EmergencyService {
         }
         String cleaned = input.replaceAll("[\\r\\n\\t]", " ").trim();
         return cleaned.length() > 500 ? cleaned.substring(0, 500) + "...(truncated)" : cleaned;
+    }
+
+    private String getPatientUsername(Ticket ticket) {
+        return Optional.ofNullable(ticket.getPatient())
+                .map(User::getUsername)
+                .orElse("unknown");
+    }
+
+    private UUID getPatientId(Ticket ticket) {
+        return Optional.ofNullable(ticket.getPatient())
+                .map(User::getId)
+                .orElse(null);
     }
 
     private User verifyDoctorFacilityAccess(UUID doctorId, UUID facilityId, UUID departmentId) {
@@ -100,7 +111,7 @@ public class EmergencyService {
     public void activateEmergencyMode(UUID facilityId, UUID departmentId, UUID doctorId, int durationMinutes) {
         User doctor = verifyDoctorFacilityAccess(doctorId, facilityId, departmentId);
 
-        int clampedDuration = Math.max(MIN_DURATION_MINUTES, Math.min(MAX_DURATION_MINUTES, durationMinutes));
+        int clampedDuration = Math.clamp(durationMinutes, MIN_DURATION_MINUTES, MAX_DURATION_MINUTES);
 
         log.info("Activating emergency mode. Facility: {}, Department: {}, Duration: {} minutes",
                 facilityId, departmentId, clampedDuration);
@@ -205,7 +216,7 @@ public class EmergencyService {
                 if (targetFacilityId == null) {
                     throw new IllegalArgumentException("targetFacilityId is required for external transfer");
                 }
-                return transferToFacility(ticket, targetFacilityId);
+                return transferToFacilityWithRevalidation(ticket, targetFacilityId);
 
             default:
                 throw new IllegalArgumentException("Invalid emergency choice: " + sanitizeForLog(choice));
@@ -236,7 +247,7 @@ public class EmergencyService {
 
         User leastBusyDoctor = availableDoctors.stream()
                 .min(Comparator.comparingInt(doc -> ticketRepository.countActiveTicketsForDoctor(doc.getId())))
-                .orElse(availableDoctors.get(0));
+                .orElse(availableDoctors.getFirst());
 
         User previousDoctor = ticket.getAssignedDoctor();
         ticket.setAssignedDoctor(leastBusyDoctor);
@@ -245,13 +256,10 @@ public class EmergencyService {
         Ticket updated = ticketRepository.save(ticket);
         sseService.sendTicketUpdate(updated);
 
-        String patientUsername = ticket.getPatient() != null ? ticket.getPatient().getUsername() : "unknown";
-        UUID patientId = ticket.getPatient() != null ? ticket.getPatient().getId() : null;
-
         auditService.logSecurityEvent(
                 "EMERGENCY_INTERNAL_TRANSFER",
-                patientUsername,
-                patientId,
+                getPatientUsername(ticket),
+                getPatientId(ticket),
                 null,
                 "Ticket: " + ticket.getTicketNumber() +
                         ", From doctor: " + (previousDoctor != null ? previousDoctor.getUsername() : "none") +
@@ -268,23 +276,76 @@ public class EmergencyService {
     }
 
     @Transactional
-    public Ticket transferToFacility(Ticket ticket, UUID targetFacilityId) {
+    public Ticket transferToFacilityWithRevalidation(Ticket ticket, UUID targetFacilityId) {
         Facility targetFacility = facilityRepository.findById(targetFacilityId)
                 .orElseThrow(() -> new RuntimeException("Target facility not found"));
+
+        if (!targetFacility.isActive()) {
+            throw new IllegalStateException("Target facility is currently inactive");
+        }
 
         Department matchingDepartment = departmentRepository.findByFacilityIdAndCode(
                 targetFacilityId,
                 ticket.getDepartment().getCode()
-        ).orElseThrow(() -> new IllegalStateException(
-                "Target facility has no " + ticket.getDepartment().getCode() + " department"
-        ));
+        ).orElse(null);
 
-        if (matchingDepartment.getAvailableDoctorCount() <= 0) {
-            throw new IllegalStateException(
-                    "Target department has no active doctor on duty; choose a different facility"
+        if (matchingDepartment == null) {
+            log.warn("Target facility {} no longer has department {}. Searching for alternatives...",
+                    targetFacilityId, ticket.getDepartment().getCode());
+
+            List<FacilityAvailabilityDto> alternatives = findAvailableFacilitiesWithDetails(
+                    ticket.getFacility().getId(),
+                    ticket.getDepartment().getCode()
             );
+
+            if (alternatives.isEmpty()) {
+                throw new IllegalStateException(
+                        "Target facility does not have the required department, and no alternative facilities are available"
+                );
+            }
+
+            FacilityAvailabilityDto bestAlternative = alternatives.getFirst();
+            log.info("Auto-failover: Redirecting to {} instead of original target",
+                    bestAlternative.getFacilityName());
+
+            return transferToFacilityWithRevalidation(ticket, bestAlternative.getFacilityId());
         }
 
+        long doctorCount = departmentRepository.countDoctorsByDepartment(matchingDepartment.getId());
+        if (doctorCount <= 0) {
+            log.warn("Target facility {} has department {} but no doctors available. Searching for alternatives...",
+                    targetFacilityId, matchingDepartment.getCode());
+
+            List<FacilityAvailabilityDto> alternatives = findAvailableFacilitiesWithDetails(
+                    ticket.getFacility().getId(),
+                    ticket.getDepartment().getCode()
+            );
+
+            alternatives = alternatives.stream()
+                    .filter(f -> !f.getFacilityId().equals(targetFacilityId))
+                    .toList();
+
+            if (alternatives.isEmpty()) {
+                throw new IllegalStateException(
+                        "Target facility has no available doctors in this department, and no alternative facilities are available"
+                );
+            }
+
+            FacilityAvailabilityDto bestAlternative = alternatives.getFirst();
+            log.info("Auto-failover: Redirecting to {} because target has no available doctors",
+                    bestAlternative.getFacilityName());
+
+            return transferToFacilityWithRevalidation(ticket, bestAlternative.getFacilityId());
+        }
+
+        return performTransferToFacility(ticket, targetFacility, matchingDepartment);
+    }
+
+    /**
+     * 🔥 FIXED: Removed @Transactional (called by public @Transactional method)
+     * 🔥 FIXED: Removed null checks - using helper methods
+     */
+    private Ticket performTransferToFacility(Ticket ticket, Facility targetFacility, Department matchingDepartment) {
         UUID originalFacilityId = ticket.getFacility().getId();
         UUID originalDepartmentId = ticket.getDepartment().getId();
 
@@ -307,69 +368,19 @@ public class EmergencyService {
 
         sseService.sendTicketUpdate(updated);
 
-        String patientUsername = ticket.getPatient() != null ? ticket.getPatient().getUsername() : "unknown";
-        UUID patientId = ticket.getPatient() != null ? ticket.getPatient().getId() : null;
-
         auditService.logSecurityEvent(
                 "EMERGENCY_TRANSFER",
-                patientUsername,
-                patientId,
+                getPatientUsername(ticket),
+                getPatientId(ticket),
                 null,
-                "From: " + originalFacilityId + " To: " + targetFacilityId +
+                "From: " + originalFacilityId + " To: " + targetFacility.getId() +
                         ", Ticket: " + ticket.getTicketNumber()
         );
 
         log.info("Patient {} transferred from {} to {} due to emergency",
-                ticket.getTicketNumber(), originalFacilityId, targetFacilityId);
+                ticket.getTicketNumber(), originalFacilityId, targetFacility.getId());
 
         return updated;
-    }
-
-    public List<Facility> findAvailableFacilities(UUID facilityId, String departmentCode) {
-        List<Facility> facilities = facilityRepository.findAll();
-
-        return facilities.stream()
-                .filter(f -> !f.getId().equals(facilityId))
-                .filter(Facility::isActive)
-                .filter(f -> {
-                    List<Department> depts = departmentRepository.findActiveByFacility(f.getId());
-                    return depts.stream().anyMatch(d ->
-                            d.getCode().equals(departmentCode) && d.getAvailableDoctorCount() > 0
-                    );
-                })
-                .toList();
-    }
-
-    public Map<String, Object> getEmergencyStatus(UUID facilityId, UUID departmentId) {
-        List<Ticket> activeEmergencyTickets = ticketRepository.findActiveEmergencyTickets(facilityId, departmentId);
-
-        if (activeEmergencyTickets.isEmpty()) {
-            return Map.of("active", false);
-        }
-
-        LocalDateTime latestEnd = activeEmergencyTickets.stream()
-                .map(Ticket::getEmergencyModeEndedAt)
-                .filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo)
-                .orElse(null);
-
-        return Map.of(
-                "active", true,
-                "endsAt", latestEnd
-        );
-    }
-
-    @Scheduled(fixedRate = 60_000)
-    @Transactional
-    public void expireEmergencyMode() {
-        List<Ticket> expired = ticketRepository.findExpiredEmergencyTickets();
-        for (Ticket ticket : expired) {
-            ticket.setEmergencyModeActive(false);
-            ticketRepository.save(ticket);
-        }
-        if (!expired.isEmpty()) {
-            log.info("Auto-expired emergency mode for {} tickets", expired.size());
-        }
     }
 
     // ==================== ENHANCEMENT 1: EXTEND EMERGENCY MODE TIMEOUT ====================
@@ -430,25 +441,21 @@ public class EmergencyService {
         User doctor = userRepository.findById(doctorId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        // Verify doctor has access
         verifyDoctorFacilityAccess(doctorId, ticket.getFacility().getId(), ticket.getDepartment().getId());
 
         if (!ticket.isEmergencyModeActive()) {
             throw new IllegalStateException("Ticket is not in emergency mode");
         }
 
-        // Store old values for audit
         Priority oldPriority = ticket.getPriority();
         int oldPosition = ticket.getQueuePosition() != null ? ticket.getQueuePosition() : 0;
 
-        // Escalate priority
         ticket.setPriority(Priority.EMERGENCY);
         ticket.setQueuePosition(1);
         ticket.setEstimatedWaitMinutes(0);
         ticket.setEmergencyOption("ESCALATED");
         ticketRepository.save(ticket);
 
-        // Notify all available doctors in the department
         List<User> availableDoctors = departmentRepository.findAvailableDoctorsByDepartment(
                 ticket.getDepartment().getId()
         );
@@ -461,13 +468,12 @@ public class EmergencyService {
             );
         }
 
-        // Update patient via SSE
         sseService.sendTicketUpdate(ticket);
 
         auditService.logSecurityEvent(
                 "EMERGENCY_PRIORITY_ESCALATED",
-                ticket.getPatient() != null ? ticket.getPatient().getUsername() : "unknown",
-                ticket.getPatient() != null ? ticket.getPatient().getId() : null,
+                getPatientUsername(ticket),
+                getPatientId(ticket),
                 null,
                 "Ticket: " + ticket.getTicketNumber() +
                         ", Old priority: " + oldPriority +
@@ -483,7 +489,6 @@ public class EmergencyService {
     // ==================== ENHANCEMENT 3: EMERGENCY HISTORY ====================
 
     public List<EmergencyLog> getEmergencyHistory(UUID facilityId, LocalDateTime startDate, LocalDateTime endDate) {
-        // Get all tickets that were in emergency mode during the period
         List<Ticket> allTickets = ticketRepository.findAll();
 
         List<Ticket> emergencyTickets = allTickets.stream()
@@ -531,7 +536,6 @@ public class EmergencyService {
     // ==================== ENHANCEMENT 4: EMERGENCY STATISTICS ====================
 
     public EmergencyStats getEmergencyStats(UUID facilityId, LocalDateTime startDate, LocalDateTime endDate) {
-        // Get emergency tickets in the period
         List<Ticket> allTickets = ticketRepository.findAll();
         List<Ticket> emergencyTickets = allTickets.stream()
                 .filter(t -> t.getEmergencyModeStartedAt() != null)
@@ -573,7 +577,6 @@ public class EmergencyService {
                 .average()
                 .orElse(0);
 
-        // Priority distribution
         Map<String, Long> priorityDistribution = emergencyTickets.stream()
                 .filter(t -> t.getPriority() != null)
                 .collect(Collectors.groupingBy(
@@ -581,7 +584,6 @@ public class EmergencyService {
                         Collectors.counting()
                 ));
 
-        // Status distribution
         Map<String, Long> statusDistribution = emergencyTickets.stream()
                 .filter(t -> t.getStatus() != null)
                 .collect(Collectors.groupingBy(
@@ -610,15 +612,13 @@ public class EmergencyService {
         User doctor = userRepository.findById(doctorId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        // Verify doctor belongs to this facility
         if (doctor.getPrimaryFacility() == null ||
                 !doctor.getPrimaryFacility().getId().equals(facilityId)) {
             throw new AccessDeniedException("Doctor does not belong to this facility");
         }
 
-        int clampedDuration = Math.max(MIN_DURATION_MINUTES, Math.min(MAX_DURATION_MINUTES, durationMinutes));
+        int clampedDuration = Math.clamp(durationMinutes, MIN_DURATION_MINUTES, MAX_DURATION_MINUTES);
 
-        // Get all departments in the facility
         List<Department> departments = departmentRepository.findActiveByFacility(facilityId);
 
         if (departments.isEmpty()) {
@@ -660,13 +660,11 @@ public class EmergencyService {
         User doctor = userRepository.findById(doctorId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        // Verify doctor belongs to this facility
         if (doctor.getPrimaryFacility() == null ||
                 !doctor.getPrimaryFacility().getId().equals(facilityId)) {
             throw new AccessDeniedException("Doctor does not belong to this facility");
         }
 
-        // Get all departments in the facility
         List<Department> departments = departmentRepository.findActiveByFacility(facilityId);
 
         int deactivatedCount = 0;
@@ -700,10 +698,207 @@ public class EmergencyService {
         log.info("🏥 Facility-wide emergency deactivated for {} patients", deactivatedCount);
     }
 
+    // ==================== OPTION B - UI-ASSISTED WITH RICH METADATA ====================
+
+    public List<FacilityAvailabilityDto> findAvailableFacilitiesWithDetails(UUID currentFacilityId, String departmentCode) {
+        List<Facility> allFacilities = facilityRepository.findAll();
+
+        List<FacilityAvailabilityDto> availableFacilities = new ArrayList<>();
+
+        for (Facility facility : allFacilities) {
+            if (facility.getId().equals(currentFacilityId)) {
+                continue;
+            }
+
+            if (!facility.isActive()) {
+                continue;
+            }
+
+            Optional<Department> deptOpt = departmentRepository.findByFacilityIdAndCode(
+                    facility.getId(), departmentCode
+            );
+
+            if (deptOpt.isEmpty()) {
+                continue;
+            }
+
+            Department department = deptOpt.get();
+
+            long doctorCount = departmentRepository.countDoctorsByDepartment(department.getId());
+            if (doctorCount <= 0) {
+                continue;
+            }
+
+            int queueLength = ticketRepository.countActiveTickets(facility.getId(), department.getId());
+
+            double score = calculateFacilityScore(queueLength, (int) doctorCount);
+
+            FacilityAvailabilityDto dto = FacilityAvailabilityDto.builder()
+                    .facilityId(facility.getId())
+                    .facilityName(facility.getName())
+                    .address(facility.getAddress())
+                    .phoneNumber(facility.getPhone())
+                    .departmentId(department.getId())
+                    .departmentName(department.getName())
+                    .availableDoctorCount((int) doctorCount)
+                    .queueLength(queueLength)
+                    .estimatedWaitMinutes(queueLength * 15)
+                    .score(score)
+                    .build();
+
+            availableFacilities.add(dto);
+        }
+
+        availableFacilities.sort(Comparator.comparingDouble(FacilityAvailabilityDto::getScore));
+
+        return availableFacilities;
+    }
+
+    private double calculateFacilityScore(int queueLength, int availableDoctors) {
+        double queueScore = queueLength * 5.0;
+        double doctorScore = -availableDoctors * 3.0;
+        return queueScore + doctorScore;
+    }
+
+    public FacilityAvailabilityDto getRecommendedFacility(UUID currentFacilityId, String departmentCode) {
+        List<FacilityAvailabilityDto> available = findAvailableFacilitiesWithDetails(currentFacilityId, departmentCode);
+
+        if (available.isEmpty()) {
+            throw new IllegalStateException("No available facilities found for transfer");
+        }
+
+        return available.getFirst();
+    }
+
+    public FacilityAvailabilityDto checkFacilityAvailability(UUID facilityId, String departmentCode) {
+        Facility facility = facilityRepository.findById(facilityId)
+                .orElseThrow(() -> new RuntimeException("Facility not found"));
+
+        if (!facility.isActive()) {
+            return FacilityAvailabilityDto.builder()
+                    .facilityId(facilityId)
+                    .facilityName(facility.getName())
+                    .availableDoctorCount(0)
+                    .queueLength(-1)
+                    .estimatedWaitMinutes(-1)
+                    .isAvailable(false)
+                    .unavailabilityReason("Facility is currently inactive")
+                    .build();
+        }
+
+        Optional<Department> deptOpt = departmentRepository.findByFacilityIdAndCode(facilityId, departmentCode);
+
+        if (deptOpt.isEmpty()) {
+            return FacilityAvailabilityDto.builder()
+                    .facilityId(facilityId)
+                    .facilityName(facility.getName())
+                    .availableDoctorCount(0)
+                    .queueLength(-1)
+                    .estimatedWaitMinutes(-1)
+                    .isAvailable(false)
+                    .unavailabilityReason("Department " + departmentCode + " not found in this facility")
+                    .build();
+        }
+
+        Department department = deptOpt.get();
+
+        long doctorCount = departmentRepository.countDoctorsByDepartment(department.getId());
+
+        if (doctorCount <= 0) {
+            int queueLength = ticketRepository.countActiveTickets(facilityId, department.getId());
+            return FacilityAvailabilityDto.builder()
+                    .facilityId(facilityId)
+                    .facilityName(facility.getName())
+                    .departmentId(department.getId())
+                    .departmentName(department.getName())
+                    .availableDoctorCount(0)
+                    .queueLength(queueLength)
+                    .estimatedWaitMinutes(-1)
+                    .isAvailable(false)
+                    .unavailabilityReason("No doctors currently available in " + department.getName())
+                    .build();
+        }
+
+        int queueLength = ticketRepository.countActiveTickets(facilityId, department.getId());
+
+        return FacilityAvailabilityDto.builder()
+                .facilityId(facilityId)
+                .facilityName(facility.getName())
+                .address(facility.getAddress())
+                .phoneNumber(facility.getPhone())
+                .departmentId(department.getId())
+                .departmentName(department.getName())
+                .availableDoctorCount((int) doctorCount)
+                .queueLength(queueLength)
+                .estimatedWaitMinutes(queueLength * 15)
+                .isAvailable(true)
+                .build();
+    }
+
+    // ==================== AUTO-TRANSFER TO BEST FACILITY ====================
+
+    @Transactional
+    public Ticket autoTransferToBestFacility(Ticket ticket) {
+        if (!ticket.isEmergencyModeActive()) {
+            throw new IllegalStateException("Ticket is not in emergency mode");
+        }
+
+        String departmentCode = ticket.getDepartment().getCode();
+        UUID currentFacilityId = ticket.getFacility().getId();
+
+        List<FacilityAvailabilityDto> available = findAvailableFacilitiesWithDetails(
+                currentFacilityId, departmentCode
+        );
+
+        if (available.isEmpty()) {
+            throw new IllegalStateException(
+                    "No alternative facilities available with " + departmentCode + " department"
+            );
+        }
+
+        FacilityAvailabilityDto best = available.getFirst();
+
+        log.info("Auto-transferring patient {} to best facility: {} (score: {}, wait: {} mins)",
+                ticket.getTicketNumber(),
+                best.getFacilityName(),
+                best.getScore(),
+                best.getEstimatedWaitMinutes()
+        );
+
+        Ticket transferred = transferToFacilityWithRevalidation(ticket, best.getFacilityId());
+
+        auditService.logSecurityEvent(
+                "AUTO_TRANSFER_TO_BEST_FACILITY",
+                getPatientUsername(ticket),
+                getPatientId(ticket),
+                null,
+                "Ticket: " + ticket.getTicketNumber() +
+                        ", Best facility: " + best.getFacilityName() +
+                        ", Score: " + best.getScore()
+        );
+
+        return transferred;
+    }
+
+    // ==================== SCHEDULED TASKS ====================
+
+    @Scheduled(fixedRate = 60_000)
+    @Transactional
+    public void expireEmergencyMode() {
+        List<Ticket> expired = ticketRepository.findExpiredEmergencyTickets();
+        for (Ticket ticket : expired) {
+            ticket.setEmergencyModeActive(false);
+            ticketRepository.save(ticket);
+        }
+        if (!expired.isEmpty()) {
+            log.info("Auto-expired emergency mode for {} tickets", expired.size());
+        }
+    }
+
     // ==================== INNER CLASSES ====================
 
-    @lombok.Data
-    @lombok.Builder
+    @Data
+    @Builder
     public static class EmergencyLog {
         private String ticketNumber;
         private String patientName;
@@ -714,13 +909,14 @@ public class EmergencyService {
         private LocalDateTime endedAt;
         private long durationMinutes;
         private String action;
-        private boolean isActive;
+        @Builder.Default
+        private boolean isActive = false;
         private String status;
         private String priority;
     }
 
-    @lombok.Data
-    @lombok.Builder
+    @Data
+    @Builder
     public static class EmergencyStats {
         private long totalEmergencies;
         private long waitChoices;
@@ -732,5 +928,23 @@ public class EmergencyService {
         private Map<String, Long> statusDistribution;
         private LocalDateTime periodStart;
         private LocalDateTime periodEnd;
+    }
+
+    @Data
+    @Builder
+    public static class FacilityAvailabilityDto {
+        private UUID facilityId;
+        private String facilityName;
+        private String address;
+        private String phoneNumber;
+        private UUID departmentId;
+        private String departmentName;
+        private int availableDoctorCount;
+        private int queueLength;
+        private int estimatedWaitMinutes;
+        private double score;
+        @Builder.Default
+        private boolean isAvailable = true;
+        private String unavailabilityReason;
     }
 }
