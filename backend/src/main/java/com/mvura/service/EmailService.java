@@ -30,7 +30,7 @@ public class EmailService {
     @Value("${resend.api.key:}")
     private String resendApiKey;
 
-    @Value("${app.email.from:noreply@mvura.com}")
+    @Value("${app.email.from:onboarding@resend.dev}")
     private String fromEmail;
 
     @Value("${app.api-url:http://localhost:8080}")
@@ -62,7 +62,7 @@ public class EmailService {
             String verificationLink = frontendUrl + "/verify-email?token=" + token;
             String emailBody = buildVerificationEmailBody(user, verificationLink);
 
-            sendHtmlEmail(user.getEmail(), "MVURA - Verify Your Email Address", emailBody);
+            sendHtmlEmail(user.getEmail(), "AuraCare - Verify Your Email Address", emailBody);
             log.info("Verification email successfully sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
