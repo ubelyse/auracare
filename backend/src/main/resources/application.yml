@@ -37,8 +37,8 @@ spring:
     redis:
       namespace: mvura:session
   mail:
-    host: smtp.gmail.com
-    port: 587
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:belyseuwamb@gmail.com}
     password: ${MAIL_PASSWORD:jkqx sznm qzcb fllq}
     properties:
