@@ -126,7 +126,8 @@ public class SecurityConfig {
                 "Accept",
                 "Origin",
                 "Access-Control-Request-Method",
-                "Access-Control-Request-Headers"
+                "Access-Control-Request-Headers",
+                "X-Request-ID"  // <--- ADD THIS LINE
         ));
         configuration.setExposedHeaders(Arrays.asList(
                 "Authorization",
