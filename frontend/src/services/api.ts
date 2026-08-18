@@ -8,7 +8,8 @@ interface CustomConfig extends InternalAxiosRequestConfig {
 
 // ===== ADD: Security headers configuration =====
 const api = axios.create({
-    baseURL: '/api',
+    // This line is the magic key for environment variables
+    baseURL: import.meta.env.VITE_API_URL || '/api',
     timeout: 30000, // 30 seconds timeout
     headers: {
         'Content-Type': 'application/json',
