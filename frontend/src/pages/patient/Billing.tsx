@@ -5,6 +5,16 @@ import { billingService } from '../../services/billing';
 import { useAuthStore } from '../../stores/authStore';
 import { Billing } from '../../types/billing';
 
+// ===== ADD: Interface for bill items =====
+interface BillItem {
+    description?: string;
+    serviceCode?: string;
+    serviceName?: string;
+    amount: number;
+    originalPrice?: number;
+    insuranceType?: string;
+}
+
 export const PatientBilling: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuthStore();
@@ -49,7 +59,8 @@ export const PatientBilling: React.FC = () => {
         };
     }, [user, navigate]);
 
-    const loadBills = async () => {
+    // ===== FIXED: Make function async and return Promise =====
+    const loadBills = async (): Promise<void> => {
         setIsLoading(true);
         try {
             const data = await billingService.getPatientBills();
@@ -62,13 +73,13 @@ export const PatientBilling: React.FC = () => {
         }
     };
 
-    const parseItems = (items: any): Array<{ description?: string; serviceCode?: string; amount: number; originalPrice?: number; insuranceType?: string }> => {
+    const parseItems = (items: any): BillItem[] => {
         if (!items) return [];
-        if (Array.isArray(items)) return items;
+        if (Array.isArray(items)) return items as BillItem[];
         if (typeof items === 'string') {
             try {
                 const parsed = JSON.parse(items);
-                return Array.isArray(parsed) ? parsed : [];
+                return Array.isArray(parsed) ? parsed as BillItem[] : [];
             } catch (e) {
                 return [];
             }
@@ -76,14 +87,14 @@ export const PatientBilling: React.FC = () => {
         return [];
     };
 
-    const handlePayment = async (billingId: string) => {
+    const handlePayment = async (billingId: string): Promise<void> => {
         setIsProcessing(true);
         try {
             const result = await billingService.simulatePayment(billingId, paymentMethod);
 
             if (result.success) {
                 toast.success('Payment processed successfully!');
-                loadBills();
+                await loadBills(); // ← FIXED: Added await
                 setSelectedBill(null);
             } else {
                 toast.error(result.message || 'Payment failed');
@@ -95,7 +106,7 @@ export const PatientBilling: React.FC = () => {
         }
     };
 
-    const getStatusBadge = (status: string) => {
+    const getStatusBadge = (status: string): string => {
         const colors: Record<string, string> = {
             PENDING: 'bg-yellow-100 text-yellow-800',
             PAID: 'bg-green-100 text-green-800',
@@ -106,7 +117,7 @@ export const PatientBilling: React.FC = () => {
         return colors[status] || 'bg-gray-100 text-gray-800';
     };
 
-    const getStatusIcon = (status: string) => {
+    const getStatusIcon = (status: string): string => {
         const icons: Record<string, string> = {
             PENDING: '⏳',
             PAID: '✅',
@@ -117,22 +128,22 @@ export const PatientBilling: React.FC = () => {
         return icons[status] || '📋';
     };
 
-    const formatPrice = (amount: number) => {
+    const formatPrice = (amount: number): string => {
         return (amount || 0).toLocaleString('rw-RW');
     };
 
     // ===== HELPER: Check if patient has insurance =====
-    const hasInsurance = (insuranceType: string) => {
-        return insuranceType && insuranceType !== 'UNINSURED' && insuranceType !== 'UNKNOWN';
+    const hasInsurance = (insuranceType: string | undefined): boolean => {
+        return !!insuranceType && insuranceType !== 'UNINSURED' && insuranceType !== 'UNKNOWN';
     };
 
     // ===== HELPER: Get insurance display name =====
-    const getInsuranceDisplay = (insuranceType: string) => {
+    const getInsuranceDisplay = (insuranceType: string | undefined): string => {
         if (!insuranceType || insuranceType === 'UNINSURED' || insuranceType === 'UNKNOWN') {
             return 'None';
         }
         const insuranceMap: Record<string, string> = {
-            'MUTUELLE': 'Mutuelle de Santé',
+            'MUTUELLE': 'Mutuelle de Sante',
             'RSSB': 'RSSB',
             'MMI': 'MMI',
             'PRIVATE': 'Private Insurance',
@@ -247,7 +258,7 @@ export const PatientBilling: React.FC = () => {
                                                     {parsedItems.map((item, index) => (
                                                         <div key={index} className="flex justify-between text-sm">
                                                             <span className="text-gray-600">
-                                                                {item.serviceName || item.serviceCode || 'Service'}
+                                                                {item.serviceName || item.description || item.serviceCode || 'Service'}
                                                             </span>
                                                             <span className="font-medium">
                                                                 {hasInsuranceType && item.originalPrice ? (

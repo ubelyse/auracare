@@ -29,7 +29,7 @@ export const DepartmentManagement: React.FC = () => {
             return;
         }
 
-        const loadData = async () => {
+        const loadData = async (): Promise<void> => {
             setIsLoading(true);
             try {
                 if (facilityId) {
@@ -61,8 +61,15 @@ export const DepartmentManagement: React.FC = () => {
         };
     }, [facilityId, user, navigate]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent): Promise<void> => {
         e.preventDefault();
+
+        // ===== FIXED: Ensure facilityId is defined =====
+        if (!facilityId) {
+            toast.error('Facility ID is required');
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             const departmentData = {
@@ -70,7 +77,7 @@ export const DepartmentManagement: React.FC = () => {
                 code: formData.code,
                 description: formData.description,
                 active: formData.active,
-                facilityId: facilityId
+                facilityId: facilityId // Now guaranteed to be a string
             };
 
             if (editingDept) {
@@ -83,7 +90,7 @@ export const DepartmentManagement: React.FC = () => {
             setShowModal(false);
             setEditingDept(null);
             setFormData({ name: '', code: '', description: '', active: true });
-            loadData();
+            await loadData(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Operation failed');
         } finally {
@@ -91,17 +98,23 @@ export const DepartmentManagement: React.FC = () => {
         }
     };
 
-    const loadData = async () => {
+    // ===== FIXED: Added explicit return type =====
+    const loadData = async (): Promise<void> => {
+        // ===== FIXED: Check if facilityId exists =====
+        if (!facilityId) {
+            toast.error('No facility selected');
+            setIsLoading(false);
+            return;
+        }
+
         setIsLoading(true);
         try {
-            if (facilityId) {
-                const [facilityData, deptData] = await Promise.all([
-                    adminService.getFacility(facilityId),
-                    adminService.getDepartmentsByFacility(facilityId)
-                ]);
-                setFacility(facilityData);
-                setDepartments(deptData || []);
-            }
+            const [facilityData, deptData] = await Promise.all([
+                adminService.getFacility(facilityId),
+                adminService.getDepartmentsByFacility(facilityId)
+            ]);
+            setFacility(facilityData);
+            setDepartments(deptData || []);
         } catch (error: any) {
             toast.error('Failed to load departments');
         } finally {
@@ -109,7 +122,7 @@ export const DepartmentManagement: React.FC = () => {
         }
     };
 
-    const handleEdit = (dept: Department) => {
+    const handleEdit = (dept: Department): void => {
         setEditingDept(dept);
         setFormData({
             name: dept.name,
@@ -120,28 +133,54 @@ export const DepartmentManagement: React.FC = () => {
         setShowModal(true);
     };
 
-    const handleToggleActive = async (dept: Department) => {
+    const handleToggleActive = async (dept: Department): Promise<void> => {
         if (!confirm(`Are you sure you want to ${dept.active ? 'deactivate' : 'activate'} ${dept.name}?`)) {
             return;
         }
+
+        // ===== FIXED: Ensure facilityId is defined =====
+        if (!facilityId) {
+            toast.error('Facility ID is required');
+            return;
+        }
+
         try {
             await adminService.updateDepartment(dept.id, {
                 ...dept,
                 active: !dept.active,
-                facilityId: facilityId
+                facilityId: facilityId // Now guaranteed to be a string
             });
             toast.success(`Department ${dept.active ? 'deactivated' : 'activated'} successfully`);
-            loadData();
+            await loadData(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Operation failed');
         }
     };
 
-    const getStatusBadge = (active: boolean) => {
+    const getStatusBadge = (active: boolean): string => {
         return active
             ? 'bg-green-100 text-green-800'
             : 'bg-gray-100 text-gray-800';
     };
+
+    // ===== FIXED: Check facilityId early =====
+    if (!facilityId) {
+        return (
+            <div className="max-w-5xl mx-auto p-6">
+                <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+                    <div className="text-6xl mb-4">⚠️</div>
+                    <h2 className="text-xl font-bold text-gray-900">No Facility Selected</h2>
+                    <p className="text-gray-500 mt-2">Please select a facility first.</p>
+                    <button
+                        onClick={() => navigate('/admin/dashboard')}
+                        className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                    >
+                        ← Back to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (isLoading) {
         return (

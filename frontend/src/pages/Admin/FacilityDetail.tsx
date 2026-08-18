@@ -4,8 +4,18 @@ import toast from 'react-hot-toast';
 import { adminService, Facility, Department } from '../../services/admin';
 import { useAuthStore } from '../../stores/authStore';
 
+// ===== IMPORT the actual types from admin service =====
+import { FacilityMetrics as ServiceFacilityMetrics, DepartmentMetrics as ServiceDepartmentMetrics } from '../../services/admin';
+
 // ===== ADD: Proper types =====
-interface FacilityDetailData extends Facility {
+interface FacilityDetailData {
+    id: string;
+    name: string;
+    code: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    active: boolean;
     activePatients: number;
     staffCount: number;
     avgWaitMinutes: number;
@@ -27,14 +37,37 @@ export const FacilityDetail: React.FC = () => {
             return;
         }
 
-        const loadFacility = async () => {
+        const loadFacility = async (): Promise<void> => {
             if (!facilityId) return;
 
             setIsLoading(true);
             try {
-                const data = await adminService.getFacilityTelemetry(facilityId);
+                const data: ServiceFacilityMetrics = await adminService.getFacilityTelemetry(facilityId);
                 if (isMounted) {
-                    setFacility(data);
+                    // ===== Transform ServiceFacilityMetrics to FacilityDetailData =====
+                    const transformedData: FacilityDetailData = {
+                        id: data.id,
+                        name: data.name,
+                        code: data.code,
+                        address: data.address,
+                        phone: data.phone,
+                        email: data.email,
+                        active: data.active,
+                        activePatients: data.activePatients || 0,
+                        staffCount: data.staffCount || 0,
+                        avgWaitMinutes: data.avgWaitMinutes || 0,
+                        departments: data.departments?.map((dept: ServiceDepartmentMetrics) => ({
+                            id: dept.id,
+                            name: dept.name,
+                            code: dept.code,
+                            description: dept.description || '',
+                            active: dept.active,
+                            patients: dept.patients || 0,
+                            // Department requires facilityId - add it from the facility
+                            facilityId: data.id
+                        })) || []
+                    };
+                    setFacility(transformedData);
                 }
             } catch (error) {
                 if (isMounted) {
@@ -88,7 +121,9 @@ export const FacilityDetail: React.FC = () => {
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900">{facility.name}</h1>
                         <p className="text-sm text-gray-500">{facility.code}</p>
-                        <p className="text-xs text-gray-400 mt-1">{facility.address}</p>
+                        {facility.address && (
+                            <p className="text-xs text-gray-400 mt-1">{facility.address}</p>
+                        )}
                     </div>
                     <button
                         onClick={() => navigate('/admin/dashboard')}
@@ -117,7 +152,7 @@ export const FacilityDetail: React.FC = () => {
                     <h2 className="text-lg font-semibold text-gray-900 mb-4">Departments</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {facility.departments?.map((dept) => (
-                            <div key={dept.code} className="border rounded-lg p-4">
+                            <div key={dept.id} className="border rounded-lg p-4">
                                 <div className="flex justify-between items-center">
                                     <div>
                                         <h4 className="font-medium text-gray-900">{dept.name}</h4>

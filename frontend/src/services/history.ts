@@ -8,6 +8,13 @@ export interface HistoryStats {
     upcomingAppointments: number;
 }
 
+// ===== ADD: Search result type =====
+export interface SearchResult {
+    records: MedicalRecord[];
+    count: number;
+    keyword: string;
+}
+
 export const historyService = {
     // ===== FIXED: Added || [] fallback =====
     async getRecords(): Promise<{ records: MedicalRecord[]; count: number }> {
@@ -24,8 +31,8 @@ export const historyService = {
         return response.data;
     },
 
-    // ===== FIXED: Added || [] fallback =====
-    async searchRecords(keyword: string): Promise<{ records: MedicalRecord[]; count: number }> {
+    // ===== FIXED: Added proper return type with keyword =====
+    async searchRecords(keyword: string): Promise<SearchResult> {
         const response = await api.get('/patient/history/search', {
             params: { keyword }
         });

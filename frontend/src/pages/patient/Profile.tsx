@@ -2,18 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
-import { profileService } from '../../services/profile';  // ===== ADD: Use service instead of direct API
+import { profileService, Profile } from '../../services/profile';
+
+// ===== EXTEND User type to include phone =====
+interface UserWithPhone {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: string;
+    phone?: string;
+}
 
 export const PatientProfile: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuthStore();
     const [isEditing, setIsEditing] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);  // ===== ADD: Loading state
+    const [isLoading, setIsLoading] = useState(true);
     const [formData, setFormData] = useState({
         firstName: user?.firstName || '',
         lastName: user?.lastName || '',
         email: user?.email || '',
-        phone: user?.phone || '',
+        phone: (user as UserWithPhone)?.phone || '',
         dateOfBirth: '',
         gender: '',
         chronicConditions: [] as string[],
@@ -31,11 +41,11 @@ export const PatientProfile: React.FC = () => {
     useEffect(() => {
         let isMounted = true;
 
-        const loadProfile = async () => {
+        const loadProfile = async (): Promise<void> => {
             if (!isMounted) return;
 
             try {
-                const data = await profileService.getProfile();
+                const data: Profile = await profileService.getProfile();
                 if (isMounted) {
                     setFormData({
                         firstName: data.firstName || '',
@@ -69,7 +79,7 @@ export const PatientProfile: React.FC = () => {
         };
     }, []);
 
-    const handleSave = async () => {
+    const handleSave = async (): Promise<void> => {
         try {
             await profileService.updateProfile({
                 firstName: formData.firstName,
@@ -88,6 +98,10 @@ export const PatientProfile: React.FC = () => {
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Failed to update profile');
         }
+    };
+
+    const toggleEditing = (): void => {
+        setIsEditing(!isEditing);
     };
 
     if (isLoading) {
@@ -117,7 +131,7 @@ export const PatientProfile: React.FC = () => {
                             ← Back
                         </button>
                         <button
-                            onClick={() => setIsEditing(!isEditing)}
+                            onClick={toggleEditing}
                             className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
                         >
                             {isEditing ? 'Cancel' : '✏️ Edit Profile'}

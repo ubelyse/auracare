@@ -6,7 +6,7 @@ import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { ticketService } from '../../services/ticket';
 import { useAuthStore } from '../../stores/authStore';
-import { profileService } from '../../services/profile';  // ← ADD THIS
+import { profileService } from '../../services/profile';
 
 // ===== Facility type =====
 interface Facility {
@@ -56,7 +56,6 @@ const checkInSchema = z.object({
     facilityId: z.string().uuid('Please select a facility'),
     departmentId: z.string().uuid('Please select a department'),
     doctorId: z.string().uuid('Please select a doctor'),
-    // doctorId: z.string().optional().transform(val => val === '' ? undefined : val),
     symptoms: z.string().min(5, 'Please describe your symptoms'),
     insuranceType: z.string().optional(),
     isPregnant: booleanTransformer,
@@ -83,6 +82,16 @@ interface Department {
     }[];
 }
 
+// ===== EXTEND User type to include gender =====
+interface UserWithGender {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: string;
+    gender?: string;
+}
+
 export const CheckIn: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuthStore();
@@ -105,22 +114,23 @@ export const CheckIn: React.FC = () => {
         resolver: zodResolver(checkInSchema),
         mode: 'onChange',
         defaultValues: {
-            doctorId: '',  // No longer optional
+            doctorId: '',
         }
     });
 
     const selectedFacility = watch('facilityId');
     const selectedDepartment = watch('departmentId');
-    const selectedDoctor = watch('doctorId');  // ← ADD THIS
+    const selectedDoctor = watch('doctorId');
     const hasRecentSurgery = watch('hasRecentSurgery');
     const hasNewAllergies = watch('hasNewAllergies');
 
     // ===== Use gender from profile, fallback to user =====
-    const gender = userProfile?.gender || user?.gender || '';
+    const userWithGender = user as UserWithGender;
+    const gender = userProfile?.gender || userWithGender?.gender || '';
 
     // ===== Load user profile =====
     useEffect(() => {
-        const loadProfile = async () => {
+        const loadProfile = async (): Promise<void> => {
             try {
                 const profile = await profileService.getProfile();
                 setUserProfile(profile);
@@ -142,7 +152,6 @@ export const CheckIn: React.FC = () => {
         loadFacilities();
     }, [user, navigate]);
 
-    // ===== Fetch queue preview when facility and department are selected =====
     // ===== Fetch queue preview when facility, department, and doctor are selected =====
     useEffect(() => {
         if (selectedFacility && selectedDepartment && selectedDoctor) {
@@ -155,17 +164,7 @@ export const CheckIn: React.FC = () => {
     // FIX: race condition. If a user changed facilityId twice in quick
     // succession, the two loadDepartments() network calls could resolve
     // out of order -- an older request landing after a newer one would
-    // silently overwrite `departments` with the WRONG facility's list,
-    // while `departmentId`/`doctorId` had already been reset for the
-    // CURRENT facility. That made it possible to select a doctor who
-    // belonged to a previously-selected facility, not the one actually
-    // submitted -- which is what produced "Selected doctor is not
-    // available in this department" server-side, since two facilities
-    // can have same-named departments (e.g. "General Medicine") with
-    // different IDs and different doctor rosters.
-    //
-    // The `cancelled` flag below ensures only the response matching the
-    // facility currently selected at resolution time is applied.
+    // silently overwrite `departments` with the WRONG facility's list.
     useEffect(() => {
         if (selectedFacility) {
             let cancelled = false;
@@ -222,7 +221,7 @@ export const CheckIn: React.FC = () => {
         setShowAllergyDetails(hasNewAllergies === true);
     }, [hasNewAllergies, setValue]);
 
-    const loadFacilities = async () => {
+    const loadFacilities = async (): Promise<void> => {
         try {
             const data = await ticketService.getFacilities();
             setFacilities(Array.isArray(data) ? data : []);
@@ -233,9 +232,8 @@ export const CheckIn: React.FC = () => {
     };
 
     // ===== Fetch queue preview =====
-    // ===== Fetch queue preview =====
-    const fetchQueuePreview = async () => {
-        if (!selectedFacility || !selectedDepartment || !selectedDoctor) return;  // ← Added doctor check
+    const fetchQueuePreview = async (): Promise<void> => {
+        if (!selectedFacility || !selectedDepartment || !selectedDoctor) return;
 
         setIsLoadingPreview(true);
         try {
@@ -250,7 +248,7 @@ export const CheckIn: React.FC = () => {
             const params = new URLSearchParams({
                 facilityId: selectedFacility,
                 departmentId: selectedDepartment,
-                doctorId: selectedDoctor  // ← ADD THIS
+                doctorId: selectedDoctor
             });
 
             const response = await fetch(`/api/checkin/preview?${params}`, {
@@ -275,16 +273,12 @@ export const CheckIn: React.FC = () => {
         }
     };
 
-    const getSelectedDepartment = () => {
-        return departments.find(d => d.id === selectedDepartment);
-    };
-
-    const getDoctorsForDepartment = () => {
-        const dept = getSelectedDepartment();
+    const getDoctorsForDepartment = (): Department['availableDoctors'] => {
+        const dept = departments.find(d => d.id === selectedDepartment);
         return dept?.availableDoctors || [];
     };
 
-    const onSubmit = async (data: CheckInFormData) => {
+    const onSubmit = async (data: CheckInFormData): Promise<void> => {
         if (!user) {
             toast.error('Please login first');
             return;
@@ -311,7 +305,6 @@ export const CheckIn: React.FC = () => {
             };
 
             if (data.doctorId && data.doctorId.trim() !== '') {
-                // requestData.doctorId = data.doctorId;
                 requestData.doctorId = data.doctorId;
             } else {
                 requestData.doctorId = null;
@@ -333,7 +326,6 @@ export const CheckIn: React.FC = () => {
         }
     };
 
-    const selectedDept = getSelectedDepartment();
     const availableDoctors = getDoctorsForDepartment();
 
     if (isProfileLoading) {
@@ -415,7 +407,8 @@ export const CheckIn: React.FC = () => {
                                         <p className="text-sm text-green-800 flex items-center">
                                             <span className="text-lg mr-2">🎯</span>
                                             <span>
-                                                <strong>You're next in line!</strong> If you check in now, you'll be seen in about {queuePreview.estimatedWaitMinutes} minutes.
+                                                <strong>You're next in line!</strong> If you check in now,
+                                                you'll be seen in about {queuePreview.estimatedWaitMinutes} minutes.
                                                 {queuePreview.totalPatientsAhead === 0 && (
                                                     <span className="block text-xs text-green-600 mt-1">
                                                         ✅ No patients ahead of you!
@@ -432,7 +425,8 @@ export const CheckIn: React.FC = () => {
                                         <p className="text-sm text-blue-800 flex items-center">
                                             <span className="text-lg mr-2">📋</span>
                                             <span>
-                                                You're #{queuePreview.estimatedPosition} in line with about {queuePreview.estimatedWaitMinutes} minutes wait.
+                                                You're #{queuePreview.estimatedPosition} in line with
+                                                about {queuePreview.estimatedWaitMinutes} minutes wait.
                                                 <span className="block text-xs text-blue-600 mt-1">
                                                     ⏱️ Please stay nearby - your turn is coming soon!
                                                 </span>
@@ -447,7 +441,8 @@ export const CheckIn: React.FC = () => {
                                         <p className="text-sm text-gray-700 flex items-center">
                                             <span className="text-lg mr-2">💡</span>
                                             <span>
-                                                You're #{queuePreview.estimatedPosition} in line. Estimated wait: {queuePreview.estimatedWaitMinutes} minutes.
+                                                You're #{queuePreview.estimatedPosition} in line.
+                                                Estimated wait: {queuePreview.estimatedWaitMinutes} minutes.
                                                 <span className="block text-xs text-gray-500 mt-1">
                                                     ☕ You have time to relax, get a drink, or check your phone.
                                                 </span>
@@ -595,7 +590,6 @@ export const CheckIn: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Doctor Selection */}
                     {/* Doctor Selection - Now MANDATORY */}
                     {selectedDepartment && (
                         <div>
@@ -608,7 +602,7 @@ export const CheckIn: React.FC = () => {
                                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                                     disabled={isLoading}
                                 >
-                                    <option value="">Select a doctor...</option>  {/* ← Changed */}
+                                    <option value="">Select a doctor...</option>
                                     {availableDoctors.map((doctor) => (
                                         <option key={doctor.id} value={doctor.id}>
                                             Dr. {doctor.firstName} {doctor.lastName}
@@ -639,7 +633,7 @@ export const CheckIn: React.FC = () => {
                             disabled={isLoading}
                         >
                             <option value="">Select insurance</option>
-                            <option value="MUTUELLE">Mutuelle de Santé</option>
+                            <option value="MUTUELLE">Mutuelle de Sante</option>
                             <option value="RSSB">RSSB</option>
                             <option value="MMI">MMI</option>
                             <option value="Uninsured">None</option>

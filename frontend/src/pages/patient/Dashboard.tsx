@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { ticketService, ActiveTicket } from '../../services/ticket';
@@ -17,9 +17,17 @@ interface EmergencyAlert {
     };
 }
 
+// ===== ADD: TicketUpdate interface =====
+interface TicketUpdate {
+    status?: string;
+    doctorName?: string;
+    queuePosition?: number;
+    estimatedWaitMinutes?: number;
+}
+
 export const PatientDashboard: React.FC = () => {
     const navigate = useNavigate();
-    const { user, logout, patientMode, setPatientMode } = useAuthStore(); // ← ADD patientMode
+    const { user, logout, patientMode, setPatientMode } = useAuthStore();
     const [hasActiveTicket, setHasActiveTicket] = useState(false);
     const [activeTicket, setActiveTicket] = useState<ActiveTicket | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -28,6 +36,15 @@ export const PatientDashboard: React.FC = () => {
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
 
+    // ===== ADD: Ref to track if emergency has been handled =====
+    const emergencyHandledRef = useRef(false);
+    // ===== ADD: Ref to track if emergency toast has been shown =====
+    const emergencyToastShownRef = useRef(false);
+    // ===== ADD: Ref to track last emergency timestamp =====
+    const lastEmergencyTimeRef = useRef<number>(0);
+    // ===== ADD: Ref to track the current ticket number for session storage =====
+    const currentTicketNumberRef = useRef<string | null>(null);
+
     // ===== If no mode selected, redirect to landing =====
     useEffect(() => {
         if (!patientMode && !hasActiveTicket) {
@@ -35,6 +52,19 @@ export const PatientDashboard: React.FC = () => {
             return;
         }
     }, [patientMode, hasActiveTicket, navigate]);
+
+    // ===== LOAD SESSION STATE ON MOUNT =====
+    useEffect(() => {
+        // Check if there's a saved emergency state for this ticket
+        if (activeTicket?.ticketNumber) {
+            const savedState = sessionStorage.getItem(`emergencyHandled_${activeTicket.ticketNumber}`);
+            if (savedState === 'true') {
+                emergencyHandledRef.current = true;
+                console.log('🔄 Emergency already handled (from session storage)');
+            }
+            currentTicketNumberRef.current = activeTicket.ticketNumber;
+        }
+    }, [activeTicket]);
 
     useEffect(() => {
         let isMounted = true;
@@ -65,12 +95,30 @@ export const PatientDashboard: React.FC = () => {
                     const ticket = await ticketService.getActiveTicket();
                     if (isMounted) {
                         setActiveTicket(ticket);
+                        // Update the current ticket number ref
+                        currentTicketNumberRef.current = ticket.ticketNumber;
+
+                        // Check session storage for emergency state
+                        const savedState = sessionStorage.getItem(`emergencyHandled_${ticket.ticketNumber}`);
+                        if (savedState === 'true') {
+                            emergencyHandledRef.current = true;
+                            console.log('🔄 Emergency already handled for this ticket');
+                        }
+
                         // If they have an active ticket, they must be at the hospital
                         setPatientMode('walkin');
                     }
                 } else {
                     if (isMounted) {
                         setActiveTicket(null);
+                        currentTicketNumberRef.current = null;
+                        // Clear any saved emergency state
+                        const keys = Object.keys(sessionStorage);
+                        keys.forEach(key => {
+                            if (key.startsWith('emergencyHandled_')) {
+                                sessionStorage.removeItem(key);
+                            }
+                        });
                     }
                 }
             } catch (error) {
@@ -90,6 +138,9 @@ export const PatientDashboard: React.FC = () => {
         return () => {
             isMounted = false;
             sseService.disconnect();
+            // ===== RESET refs on unmount =====
+            emergencyHandledRef.current = false;
+            emergencyToastShownRef.current = false;
         };
     }, [user, navigate, setPatientMode]);
 
@@ -98,12 +149,18 @@ export const PatientDashboard: React.FC = () => {
         if (hasActiveTicket && activeTicket?.ticketNumber) {
             connectSSE(activeTicket.ticketNumber);
         }
+
+        // ===== RESET refs when ticket changes =====
+        return () => {
+            // Don't reset emergencyHandledRef here - it should persist for the ticket
+            // Only reset if the ticket number changes
+        };
     }, [hasActiveTicket, activeTicket]);
 
     const connectSSE = (ticketNumber: string) => {
         sseService.connectToTicket(
             ticketNumber,
-            (data) => {
+            (data: TicketUpdate) => {
                 console.log('📡 Ticket update:', data);
                 checkActiveTicket();
 
@@ -112,6 +169,13 @@ export const PatientDashboard: React.FC = () => {
                     setShowEmergencyOptions(false);
                     setEmergencyAlert(null);
                     setShowTransferModal(false);
+                    // ===== RESET refs when status changes from emergency =====
+                    emergencyHandledRef.current = false;
+                    emergencyToastShownRef.current = false;
+                    // ===== Clear session storage =====
+                    if (ticketNumber) {
+                        sessionStorage.removeItem(`emergencyHandled_${ticketNumber}`);
+                    }
                 }
 
                 // ===== CLOSE EMERGENCY MODAL IF DOCTOR CHANGED =====
@@ -120,13 +184,46 @@ export const PatientDashboard: React.FC = () => {
                     setEmergencyAlert(null);
                     setShowTransferModal(false);
                     toast.success(`✅ Transferred to ${data.doctorName}`);
+                    // ===== RESET refs on transfer =====
+                    emergencyHandledRef.current = false;
+                    emergencyToastShownRef.current = false;
+                    if (ticketNumber) {
+                        sessionStorage.removeItem(`emergencyHandled_${ticketNumber}`);
+                    }
                 }
             },
             (emergencyData: EmergencyAlert) => {
                 console.log('🚨 Emergency alert received:', emergencyData);
+
+                // ===== CHECK IF EMERGENCY HAS ALREADY BEEN HANDLED =====
+                // Check ref first
+                if (emergencyHandledRef.current) {
+                    console.log('🛑 Emergency already handled (ref), ignoring duplicate');
+                    return;
+                }
+
+                // Check session storage
+                if (ticketNumber) {
+                    const savedState = sessionStorage.getItem(`emergencyHandled_${ticketNumber}`);
+                    if (savedState === 'true') {
+                        emergencyHandledRef.current = true;
+                        console.log('🛑 Emergency already handled (session), ignoring duplicate');
+                        return;
+                    }
+                }
+
+                // ===== PREVENT DUPLICATE TOASTS =====
+                const now = Date.now();
+                if (!emergencyToastShownRef.current || (now - lastEmergencyTimeRef.current) > 5000) {
+                    emergencyToastShownRef.current = true;
+                    lastEmergencyTimeRef.current = now;
+                    toast.error('🚨 EMERGENCY: Doctor has been called away!');
+                } else {
+                    console.log('🛑 Duplicate emergency toast suppressed');
+                }
+
                 setEmergencyAlert(emergencyData);
                 setShowEmergencyOptions(true);
-                toast.error('🚨 EMERGENCY: Doctor has been called away!');
             }
         );
     };
@@ -144,8 +241,10 @@ export const PatientDashboard: React.FC = () => {
             if (hasActive) {
                 const ticket = await ticketService.getActiveTicket();
                 setActiveTicket(ticket);
+                currentTicketNumberRef.current = ticket.ticketNumber;
             } else {
                 setActiveTicket(null);
+                currentTicketNumberRef.current = null;
             }
         } catch (error) {
             setHasActiveTicket(false);
@@ -153,8 +252,9 @@ export const PatientDashboard: React.FC = () => {
         }
     };
 
+    // ===== FIXED: Added facilityId and departmentId =====
     const handleEmergencyChoice = async (choice: string) => {
-        if (!activeTicket?.ticketNumber) {
+        if (!activeTicket?.id) {
             toast.error('No active ticket found');
             return;
         }
@@ -162,14 +262,25 @@ export const PatientDashboard: React.FC = () => {
         setIsProcessing(true);
         try {
             await ticketService.handleEmergencyChoice(
-                activeTicket.ticketNumber,
-                choice
+                activeTicket.id,
+                choice,
+                activeTicket.facilityId,    // ADD THIS
+                activeTicket.departmentId   // ADD THIS
             );
+
+            // ===== MARK EMERGENCY AS HANDLED =====
+            emergencyHandledRef.current = true;
+            // ===== Save to session storage to persist across refreshes =====
+            if (activeTicket.ticketNumber) {
+                sessionStorage.setItem(`emergencyHandled_${activeTicket.ticketNumber}`, 'true');
+                console.log('💾 Emergency state saved to session storage');
+            }
 
             // ===== CLOSE ALL MODALS =====
             setShowEmergencyOptions(false);
             setShowTransferModal(false);
             setEmergencyAlert(null);
+            emergencyToastShownRef.current = false;
 
             // ===== REFRESH TICKET STATUS =====
             await checkActiveTicket();
@@ -187,7 +298,7 @@ export const PatientDashboard: React.FC = () => {
             // If internal transfer failed due to no other doctor, keep modal open
             if (choice === 'INTERNAL_TRANSFER' && errorMsg.includes('No other doctor')) {
                 setShowTransferModal(false);
-                toast.info('No other doctor available. Please choose "Wait" instead.');
+                toast.error('No other doctor available. Please choose "Wait" instead.');
             } else {
                 // For other errors, close modals and refresh
                 setShowEmergencyOptions(false);
@@ -200,11 +311,18 @@ export const PatientDashboard: React.FC = () => {
         }
     };
 
-    const dismissEmergency = () => {
-        handleEmergencyChoice('WAIT');
+    const dismissEmergency = async () => {
+        await handleEmergencyChoice('WAIT');
     };
 
     const handleLogout = async () => {
+        // Clear any saved emergency state on logout
+        const keys = Object.keys(sessionStorage);
+        keys.forEach(key => {
+            if (key.startsWith('emergencyHandled_')) {
+                sessionStorage.removeItem(key);
+            }
+        });
         await logout();
         navigate('/login');
     };
@@ -261,7 +379,7 @@ export const PatientDashboard: React.FC = () => {
     };
 
     // ===== Determine if walk-in mode =====
-    const isWalkin = patientMode === 'walkin' || hasActiveTicket;
+    const isWalkIn = patientMode === 'walkin' || hasActiveTicket;
 
     if (isLoading) {
         return (
@@ -283,13 +401,23 @@ export const PatientDashboard: React.FC = () => {
                             Welcome, {user?.firstName} {user?.lastName}
                         </h1>
                         <p className="text-gray-600">
-                            {isWalkin ? '🏥 Walk-in Visit' : '📅 Appointment Booking'}
+                            {isWalkIn ? '🏥 Walk-in Visit' : '📅 Appointment Booking'}
                         </p>
+                        {activeTicket?.ticketNumber && (
+                            <p className="text-xs text-gray-400 mt-1">
+                                Ticket: {activeTicket.ticketNumber} • Status: {activeTicket.status}
+                            </p>
+                        )}
                     </div>
                     <div className="flex gap-2">
-                        {/* ===== CHANGE MODE BUTTON ===== */}
                         <button
                             onClick={() => {
+                                const keys = Object.keys(sessionStorage);
+                                keys.forEach(key => {
+                                    if (key.startsWith('emergencyHandled_')) {
+                                        sessionStorage.removeItem(key);
+                                    }
+                                });
                                 setPatientMode(null);
                                 navigate('/patient/landing');
                             }}
@@ -387,8 +515,8 @@ export const PatientDashboard: React.FC = () => {
                     </div>
                 )}
 
-                {/* Active Ticket Status (only for walk-in) */}
-                {isWalkin && hasActiveTicket && activeTicket && (
+                {/* Active Ticket Status */}
+                {isWalkIn && hasActiveTicket && activeTicket && (
                     <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="flex items-start justify-between">
                             <div>
@@ -430,12 +558,10 @@ export const PatientDashboard: React.FC = () => {
                     </div>
                 )}
 
-                {/* ===== DASHBOARD GRID - CONDITIONAL ===== */}
+                {/* Dashboard Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                    {/* ===== WALK-IN MODE ===== */}
-                    {isWalkin && (
+                    {isWalkIn && (
                         <>
-                            {/* New Check-In */}
                             <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                                 <div className="flex items-start justify-between">
                                     <div>
@@ -457,7 +583,6 @@ export const PatientDashboard: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Queue Status */}
                             <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                                 <div className="flex items-start justify-between">
                                     <div>
@@ -481,10 +606,8 @@ export const PatientDashboard: React.FC = () => {
                         </>
                     )}
 
-                    {/* ===== APPOINTMENT MODE ===== */}
-                    {!isWalkin && (
+                    {!isWalkIn && (
                         <>
-                            {/* My Appointments */}
                             <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                                 <div className="flex items-start justify-between">
                                     <div>
@@ -501,7 +624,6 @@ export const PatientDashboard: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Book Appointment */}
                             <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                                 <div className="flex items-start justify-between">
                                     <div>
@@ -520,8 +642,6 @@ export const PatientDashboard: React.FC = () => {
                         </>
                     )}
 
-                    {/* ===== ALWAYS VISIBLE (Both Modes) ===== */}
-                    {/* Medical History */}
                     <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                         <div className="flex items-start justify-between">
                             <div>
@@ -538,7 +658,6 @@ export const PatientDashboard: React.FC = () => {
                         </button>
                     </div>
 
-                    {/* Billing */}
                     <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                         <div className="flex items-start justify-between">
                             <div>
@@ -555,7 +674,6 @@ export const PatientDashboard: React.FC = () => {
                         </button>
                     </div>
 
-                    {/* My Profile */}
                     <div className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                         <div className="flex items-start justify-between">
                             <div>

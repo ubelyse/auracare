@@ -7,7 +7,7 @@ import { MainLayout } from './components/layout/MainLayout';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { VerifyEmail } from './pages/VerifyEmail';
-import { PatientLanding } from './pages/patient/PatientLanding';  // ← ADD THIS
+import { PatientLanding } from './pages/patient/PatientLanding';
 import { PatientDashboard } from './pages/patient/Dashboard';
 import { CheckIn } from './pages/patient/CheckIn';
 import { QueueStatus } from './pages/patient/QueueStatus';
@@ -28,17 +28,19 @@ import { Facilities } from './pages/Admin/Facilities';
 import { BookAppointment } from './pages/patient/BookAppointment';
 import { MyAppointments } from './pages/patient/MyAppointments';
 import { NotFound } from './pages/NotFound';
+import { StaffDashboard } from './pages/staff/StaffDashboard';
+
 import { useAuthStore } from './stores/authStore';
+
 import './index.css';
 import './styles/tokens.css';
 
 const queryClient = new QueryClient();
 
-// ===== FIXED: Added loading state =====
+// ===== PROTECTED ROUTE =====
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user, isAuthenticated, hasHydrated } = useAuthStore();
 
-    // Wait for hydration to complete before checking auth
     if (!hasHydrated) {
         return (
             <div className="flex justify-center items-center min-h-screen">
@@ -54,6 +56,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
 };
 
+// ===== STAFF ROUTE WRAPPER =====
+// StaffDashboard already has its own layout, so we don't wrap it in MainLayout
+const StaffRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    return <ProtectedRoute>{children}</ProtectedRoute>;
+};
+
 function App() {
     return (
         <QueryClientProvider client={queryClient}>
@@ -61,14 +69,13 @@ function App() {
                 <BrowserRouter>
                     <div className="min-h-screen">
                         <Routes>
-                            {/* Public Auth Routes */}
+                            {/* ===== PUBLIC AUTH ROUTES ===== */}
                             <Route path="/login" element={<Login />} />
                             <Route path="/register" element={<Register />} />
                             <Route path="/verify-email" element={<VerifyEmail />} />
                             <Route path="/" element={<Navigate to="/login" />} />
 
                             {/* ===== PATIENT ROUTES ===== */}
-                            {/* Patient Landing (choice screen) */}
                             <Route path="/patient/landing" element={
                                 <ProtectedRoute>
                                     <MainLayout title="Welcome">
@@ -149,7 +156,7 @@ function App() {
                                 </ProtectedRoute>
                             } />
 
-                            {/* Doctor Routes */}
+                            {/* ===== DOCTOR ROUTES ===== */}
                             <Route path="/doctor/dashboard" element={
                                 <ProtectedRoute>
                                     <MainLayout title="Doctor Dashboard">
@@ -158,16 +165,33 @@ function App() {
                                 </ProtectedRoute>
                             } />
 
-                            {/* Staff Routes */}
+                            {/* ===== STAFF ROUTES ===== */}
+                            {/* StaffDashboard has its own layout, so no MainLayout wrapper */}
                             <Route path="/staff/dashboard" element={
-                                <ProtectedRoute>
-                                    <MainLayout title="Staff Dashboard">
-                                        <div>Staff Dashboard (Coming Soon)</div>
-                                    </MainLayout>
-                                </ProtectedRoute>
+                                <StaffRoute>
+                                    <StaffDashboard />
+                                </StaffRoute>
                             } />
 
-                            {/* Admin Routes */}
+                            <Route path="/staff/queue" element={
+                                <StaffRoute>
+                                    <StaffDashboard />
+                                </StaffRoute>
+                            } />
+
+                            <Route path="/staff/patients" element={
+                                <StaffRoute>
+                                    <StaffDashboard />
+                                </StaffRoute>
+                            } />
+
+                            <Route path="/staff/billing" element={
+                                <StaffRoute>
+                                    <StaffDashboard />
+                                </StaffRoute>
+                            } />
+
+                            {/* ===== ADMIN ROUTES ===== */}
                             <Route path="/admin/dashboard" element={
                                 <ProtectedRoute>
                                     <MainLayout title="Admin Dashboard">
@@ -248,9 +272,10 @@ function App() {
                                 </ProtectedRoute>
                             } />
 
-                            {/* ===== 404 Route ===== */}
+                            {/* ===== 404 ROUTE ===== */}
                             <Route path="*" element={<NotFound />} />
                         </Routes>
+
                         <Toaster
                             position="top-right"
                             toastOptions={{

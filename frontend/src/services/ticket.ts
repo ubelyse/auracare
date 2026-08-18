@@ -84,6 +84,10 @@ export interface ActiveTicket {
     departmentId: string;
     departmentName: string;
     departmentCode: string;
+    doctorId?: string;
+    doctorName?: string;
+    patientName?: string;
+    triageScore?: number;
 }
 
 export const ticketService = {
@@ -122,12 +126,10 @@ export const ticketService = {
         return response.data.doctors || [];
     },
 
-    // 🔥 FIXED: Returns array directly, not wrapped in a 'facilities' property
     async getAvailableFacilities(facilityId: string, departmentCode: string): Promise<FacilityAvailability[]> {
         const response = await api.get('/emergency/available-facilities', {
             params: { facilityId, departmentCode }
         });
-        // Backend returns array directly
         return response.data || [];
     },
 
@@ -136,12 +138,20 @@ export const ticketService = {
         return response.data || [];
     },
 
-    // 🔥 FIXED: Proper request body format
-    async handleEmergencyChoice(ticketId: string, choice: string, targetFacilityId?: string): Promise<EmergencyChoiceResult> {
+    // ===== FIXED: Added facilityId and departmentId =====
+    async handleEmergencyChoice(
+        ticketId: string,
+        choice: string,
+        facilityId: string,
+        departmentId: string,
+        targetFacilityId?: string
+    ): Promise<EmergencyChoiceResult> {
         const response = await api.post('/emergency/choice', null, {
             params: {
                 ticketId,
                 choice,
+                facilityId,
+                departmentId,
                 targetFacilityId
             }
         });

@@ -1,6 +1,6 @@
 import { EventSourcePolyfill } from 'event-source-polyfill';
 
-// ===== ADD: Types =====
+// ===== Types =====
 interface TicketUpdate {
     ticketNumber: string;
     status: string;
@@ -27,35 +27,42 @@ class SSEService {
     private eventSource: EventSourcePolyfill | null = null;
     private ticketRetryCount = 0;
     private queueRetryCount = 0;
+    private reconnectTimeout: NodeJS.Timeout | null = null;
 
+    // ==================== CONNECT TO TICKET ====================
+
+    /**
+     * Connect to SSE for a specific ticket
+     * Returns an unsubscribe function that closes the connection
+     */
     connectToTicket(
         ticketNumber: string,
         onUpdate: (data: TicketUpdate) => void,
         onEmergency?: (data: EmergencyAlert) => void
-    ): EventSourcePolyfill | null {
+    ): () => void {
+        // Clear any existing connection
+        this.disconnect();
+
         try {
             const token = this.getToken();
             if (!token) {
                 console.warn('SSE: No token found for ticket:', ticketNumber);
-                return null;
+                return () => {};
             }
 
-            console.log('🔴🔴🔴 Connecting to SSE for ticket:', ticketNumber);
+            console.log('📡 Connecting to SSE for ticket:', ticketNumber);
 
-            // ===== FIX: Send token as URL parameter =====
             this.eventSource = new EventSourcePolyfill(
                 `/api/sse/ticket/${ticketNumber}?token=${token}`,
-                {
-                    headers: {}
-                }
+                { headers: {} }
             );
-            // ==========================================
 
             this.eventSource.onopen = () => {
                 this.ticketRetryCount = 0;
                 console.log('✅ SSE connection established for ticket:', ticketNumber);
             };
 
+            // 🔥 FIXED: Added explicit event type
             this.eventSource.addEventListener('ticket-update', (event: MessageEvent) => {
                 try {
                     const data = JSON.parse(event.data) as TicketUpdate;
@@ -65,6 +72,7 @@ class SSEService {
                 }
             });
 
+            // 🔥 FIXED: Added explicit event type
             this.eventSource.addEventListener('emergency-alert', (event: MessageEvent) => {
                 try {
                     const data = JSON.parse(event.data) as EmergencyAlert;
@@ -77,7 +85,8 @@ class SSEService {
                 }
             });
 
-            this.eventSource.addEventListener('error', (event) => {
+            // 🔥 FIXED: Added explicit event type
+            this.eventSource.addEventListener('error', (event: Event) => {
                 console.warn('SSE error for ticket:', ticketNumber, event);
                 if (this.eventSource?.readyState === EventSource.CLOSED) {
                     if (this.ticketRetryCount >= MAX_RETRIES) {
@@ -87,54 +96,71 @@ class SSEService {
                     this.ticketRetryCount += 1;
                     const delay = BASE_RETRY_DELAY_MS * this.ticketRetryCount;
                     console.log(`SSE: retrying connection in ${delay}ms (attempt ${this.ticketRetryCount})`);
-                    setTimeout(() => {
+
+                    // Clear any existing timeout
+                    if (this.reconnectTimeout) {
+                        clearTimeout(this.reconnectTimeout);
+                    }
+
+                    this.reconnectTimeout = setTimeout(() => {
                         this.connectToTicket(ticketNumber, onUpdate, onEmergency);
                     }, delay);
                 }
             });
 
-            return this.eventSource;
         } catch (error) {
             console.error('SSE connection error:', error);
-            return null;
         }
+
+        // Return an unsubscribe function
+        return () => {
+            this.disconnect();
+        };
     }
 
+    // ==================== CONNECT TO QUEUE ====================
+
+    /**
+     * Connect to SSE for a queue
+     * Returns an unsubscribe function that closes the connection
+     */
     connectToQueue(
         facilityId: string,
         departmentId: string,
         onUpdate: (data: any) => void,
         onEmergency: (data: any) => void
-    ): EventSourcePolyfill | null {
+    ): () => void {
+        // Clear any existing connection
+        this.disconnect();
+
         try {
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!uuidRegex.test(facilityId) || !uuidRegex.test(departmentId)) {
                 console.warn('SSE: invalid UUID format for queue connection');
-                return null;
+                return () => {};
             }
 
             const token = this.getToken();
             if (!token) {
                 console.warn('SSE: No token found for queue connection');
-                return null;
+                return () => {};
             }
 
             const clientId = `${facilityId}-${departmentId}-${Date.now()}`;
 
-            // ===== FIX: Send token as URL parameter for queue too =====
+            console.log('📡 Connecting to SSE queue:', facilityId, departmentId);
+
             this.eventSource = new EventSourcePolyfill(
                 `/api/sse/queue/${facilityId}/${departmentId}?clientId=${clientId}&token=${token}`,
-                {
-                    headers: {}
-                }
+                { headers: {} }
             );
-            // ========================================================
 
             this.eventSource.onopen = () => {
                 this.queueRetryCount = 0;
                 console.log('✅ SSE queue connection established for:', facilityId, departmentId);
             };
 
+            // 🔥 FIXED: Added explicit event type
             this.eventSource.addEventListener('queue-update', (event: MessageEvent) => {
                 try {
                     const data = JSON.parse(event.data);
@@ -144,6 +170,7 @@ class SSEService {
                 }
             });
 
+            // 🔥 FIXED: Added explicit event type
             this.eventSource.addEventListener('emergency-alert', (event: MessageEvent) => {
                 try {
                     const data = JSON.parse(event.data);
@@ -153,7 +180,8 @@ class SSEService {
                 }
             });
 
-            this.eventSource.addEventListener('error', (event) => {
+            // 🔥 FIXED: Added explicit event type
+            this.eventSource.addEventListener('error', (event: Event) => {
                 console.warn('SSE queue error:', event);
                 if (this.eventSource?.readyState === EventSource.CLOSED) {
                     if (this.queueRetryCount >= MAX_RETRIES) {
@@ -163,20 +191,32 @@ class SSEService {
                     this.queueRetryCount += 1;
                     const delay = BASE_RETRY_DELAY_MS * this.queueRetryCount;
                     console.log(`SSE: retrying queue connection in ${delay}ms (attempt ${this.queueRetryCount})`);
-                    setTimeout(() => {
+
+                    if (this.reconnectTimeout) {
+                        clearTimeout(this.reconnectTimeout);
+                    }
+
+                    this.reconnectTimeout = setTimeout(() => {
                         this.connectToQueue(facilityId, departmentId, onUpdate, onEmergency);
                     }, delay);
                 }
             });
 
-            return this.eventSource;
         } catch (error) {
             console.error('SSE queue connection error:', error);
-            return null;
         }
+
+        // Return an unsubscribe function
+        return () => {
+            this.disconnect();
+        };
     }
 
-    // ===== Helper method to get token =====
+    // ==================== HELPER METHODS ====================
+
+    /**
+     * Get the access token from localStorage
+     */
     private getToken(): string | null {
         let token = localStorage.getItem('accessToken');
 
@@ -201,7 +241,18 @@ class SSEService {
         return token;
     }
 
+    // ==================== DISCONNECT ====================
+
+    /**
+     * Disconnect from SSE and clean up all resources
+     */
     disconnect(): void {
+        // Clear any pending reconnect timeout
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+
         if (this.eventSource) {
             try {
                 this.eventSource.close();
@@ -210,10 +261,13 @@ class SSEService {
             }
             this.eventSource = null;
         }
+
         this.ticketRetryCount = 0;
         this.queueRetryCount = 0;
         console.log('SSE: disconnected');
     }
 }
+
+// ==================== EXPORT ====================
 
 export const sseService = new SSEService();

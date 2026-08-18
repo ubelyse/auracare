@@ -1,19 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';  // ← ADD useRef
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { adminService, Facility } from '../../services/admin';
 import { useAuthStore } from '../../stores/authStore';
 import { FacilityModal } from '../../components/admin/FacilityModal';
 
-interface TelemetryData {
-    facilities: Facility[];
-    totalPatients: number;
-    totalStaff: number;
-    activeFacilities: number;
-    averageWaitTime: number;
-    updatedAt: string;
-}
+// ===== IMPORT from admin service =====
+import { TelemetryData } from '../../services/admin';
 
+// ===== EXTEND Facility for metrics =====
 interface FacilityMetrics extends Facility {
     activePatients: number;
     doctorCount: number;
@@ -29,15 +24,25 @@ interface FacilityMetrics extends Facility {
     priorityDistribution: Record<string, number>;
 }
 
+// ===== EXTEND TelemetryData to use FacilityMetrics =====
+interface ExtendedTelemetryData {
+    facilities: FacilityMetrics[];
+    totalPatients: number;
+    totalStaff: number;
+    activeFacilities: number;
+    averageWaitTime: number;
+    updatedAt: string;
+}
+
 export const DistrictDashboard: React.FC = () => {
     const navigate = useNavigate();
     const { user, logout } = useAuthStore();
-    const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
+    const [telemetry, setTelemetry] = useState<ExtendedTelemetryData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [showFacilityModal, setShowFacilityModal] = useState(false);
-    const [editingFacility, setEditingFacility] = useState<Facility | null>(null);
+    const [editingFacility, setEditingFacility] = useState<Facility | undefined>(undefined);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);  // ← ADD THIS
+    const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // ===== START AUTO-REFRESH =====
     useEffect(() => {
@@ -79,11 +84,12 @@ export const DistrictDashboard: React.FC = () => {
         };
     }, [showFacilityModal]);
 
-    const loadTelemetry = async () => {
+    const loadTelemetry = async (): Promise<void> => {
         try {
             setIsLoading(true);
             const data = await adminService.getTelemetry();
-            setTelemetry(data);
+            // Cast to ExtendedTelemetryData since the backend returns facilities with metrics
+            setTelemetry(data as ExtendedTelemetryData);
         } catch (error: any) {
             if (error.response?.status === 403) {
                 toast.error('Access denied. You need admin privileges.');
@@ -96,25 +102,25 @@ export const DistrictDashboard: React.FC = () => {
         }
     };
 
-    const handleDeleteFacility = async (facilityId: string) => {
+    const handleDeleteFacility = async (facilityId: string): Promise<void> => {
         try {
             await adminService.deleteFacility(facilityId);
             toast.success('Facility deactivated successfully');
             setShowDeleteConfirm(null);
-            loadTelemetry();
+            await loadTelemetry(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Failed to delete facility');
         }
     };
 
-    const getStatusColor = (activePatients: number, doctorCount: number) => {
+    const getStatusColor = (activePatients: number, doctorCount: number): string => {
         const ratio = doctorCount > 0 ? activePatients / doctorCount : 0;
         if (ratio > 10) return 'text-red-600';
         if (ratio > 5) return 'text-yellow-600';
         return 'text-green-600';
     };
 
-    const getPriorityColor = (priority: string) => {
+    const getPriorityColor = (priority: string): string => {
         const colors: Record<string, string> = {
             EMERGENCY: 'bg-red-600',
             HIGH: 'bg-orange-500',
@@ -122,6 +128,11 @@ export const DistrictDashboard: React.FC = () => {
             LOW: 'bg-gray-500'
         };
         return colors[priority] || 'bg-gray-500';
+    };
+
+    // ===== FIXED: Helper to check if facility is active =====
+    const isFacilityActive = (facility: FacilityMetrics): boolean => {
+        return facility.active !== undefined ? facility.active : true;
     };
 
     if (isLoading) {
@@ -204,7 +215,7 @@ export const DistrictDashboard: React.FC = () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     <button
                         onClick={() => {
-                            setEditingFacility(null);
+                            setEditingFacility(undefined);
                             setShowFacilityModal(true);
                         }}
                         className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow text-left border-l-4 border-green-500"
@@ -237,140 +248,143 @@ export const DistrictDashboard: React.FC = () => {
 
                 {/* Facility Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {telemetry?.facilities?.map((facility: FacilityMetrics) => (
-                        <div
-                            key={facility.id}
-                            className={`bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 ${
-                                !facility.isActive ? 'opacity-60' : ''
-                            }`}
-                        >
-                            {/* Facility Header */}
-                            <div className="p-4 border-b bg-gradient-to-r from-gray-50 to-white">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex-1">
-                                        <h3 className="font-semibold text-gray-900 text-lg">{facility.name}</h3>
-                                        <p className="text-sm text-gray-500">{facility.code}</p>
-                                        {facility.address && (
-                                            <p className="text-xs text-gray-400 mt-1">{facility.address}</p>
-                                        )}
-                                    </div>
-                                    <div className="flex flex-col items-end gap-1">
-                                        <span className={`text-xs px-2 py-1 rounded-full ${
-                                            facility.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                                        }`}>
-                                            {facility.isActive ? '🟢 Active' : '🔴 Inactive'}
-                                        </span>
-                                        <span className="text-xs text-gray-400">
-                                            {facility.departments?.length || 0} depts
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Stats */}
-                            <div className="p-4">
-                                <div className="grid grid-cols-3 gap-2">
-                                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                        <p className="text-xs text-gray-500">Patients</p>
-                                        <p className={`text-xl font-bold ${getStatusColor(facility.activePatients, facility.doctorCount)}`}>
-                                            {facility.activePatients}
-                                        </p>
-                                    </div>
-                                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                        <p className="text-xs text-gray-500">Doctors</p>
-                                        <p className="text-xl font-bold text-gray-900">{facility.doctorCount}</p>
-                                    </div>
-                                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                        <p className="text-xs text-gray-500">Staff</p>
-                                        <p className="text-xl font-bold text-gray-900">{facility.staffCount}</p>
-                                    </div>
-                                </div>
-
-                                <div className="mt-3 flex justify-between items-center text-sm">
-                                    <div>
-                                        <p className="text-xs text-gray-500">Avg Wait Time</p>
-                                        <p className="font-semibold text-gray-900">{facility.avgWaitMinutes} min</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500">Doctor:Patient Ratio</p>
-                                        <p className="font-semibold text-gray-900">{facility.doctorToPatientRatio}</p>
-                                    </div>
-                                </div>
-
-                                {/* Priority Distribution */}
-                                {facility.priorityDistribution && Object.keys(facility.priorityDistribution).length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-gray-200">
-                                        <p className="text-xs text-gray-500 mb-2">Queue Priority</p>
-                                        <div className="flex gap-1">
-                                            {Object.entries(facility.priorityDistribution).map(([priority, count]) => (
-                                                <div key={priority} className="flex-1 text-center">
-                                                    <div className={`text-xs text-white rounded ${getPriorityColor(priority)} px-1 py-0.5`}>
-                                                        {count as number}
-                                                    </div>
-                                                    <div className="text-[8px] text-gray-500 mt-0.5">{priority}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Departments */}
-                                {facility.departments && facility.departments.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-gray-200">
-                                        <p className="text-xs text-gray-500 mb-2">Departments</p>
-                                        <div className="flex flex-wrap gap-1">
-                                            {facility.departments.slice(0, 4).map((dept) => (
-                                                <span
-                                                    key={dept.code}
-                                                    className={`text-xs px-2 py-0.5 rounded-full ${
-                                                        dept.active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'
-                                                    }`}
-                                                >
-                                                    {dept.name}: {dept.patients || 0}
-                                                </span>
-                                            ))}
-                                            {facility.departments.length > 4 && (
-                                                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                                                    +{facility.departments.length - 4} more
-                                                </span>
+                    {telemetry?.facilities?.map((facility: FacilityMetrics) => {
+                        const isActive = isFacilityActive(facility);
+                        return (
+                            <div
+                                key={facility.id}
+                                className={`bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 ${
+                                    !isActive ? 'opacity-60' : ''
+                                }`}
+                            >
+                                {/* Facility Header */}
+                                <div className="p-4 border-b bg-gradient-to-r from-gray-50 to-white">
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <h3 className="font-semibold text-gray-900 text-lg">{facility.name}</h3>
+                                            <p className="text-sm text-gray-500">{facility.code}</p>
+                                            {facility.address && (
+                                                <p className="text-xs text-gray-400 mt-1">{facility.address}</p>
                                             )}
                                         </div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className={`text-xs px-2 py-1 rounded-full ${
+                                                isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                            }`}>
+                                                {isActive ? '🟢 Active' : '🔴 Inactive'}
+                                            </span>
+                                            <span className="text-xs text-gray-400">
+                                                {facility.departments?.length || 0} depts
+                                            </span>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
+                                </div>
 
-                            {/* Action Buttons */}
-                            <div className="p-4 bg-gray-50 border-t grid grid-cols-4 gap-2">
-                                <button
-                                    onClick={() => navigate(`/admin/facility/${facility.id}/staff`)}
-                                    className="px-2 py-1.5 bg-blue-100 text-blue-800 rounded-md text-xs hover:bg-blue-200 transition-colors"
-                                >
-                                    👥 Staff
-                                </button>
-                                <button
-                                    onClick={() => navigate(`/admin/facility/${facility.id}/departments`)}
-                                    className="px-2 py-1.5 bg-purple-100 text-purple-800 rounded-md text-xs hover:bg-purple-200 transition-colors"
-                                >
-                                    📋 Depts
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setEditingFacility(facility);
-                                        setShowFacilityModal(true);
-                                    }}
-                                    className="px-2 py-1.5 bg-yellow-100 text-yellow-800 rounded-md text-xs hover:bg-yellow-200 transition-colors"
-                                >
-                                    ✏️ Edit
-                                </button>
-                                <button
-                                    onClick={() => setShowDeleteConfirm(facility.id)}
-                                    className="px-2 py-1.5 bg-red-100 text-red-800 rounded-md text-xs hover:bg-red-200 transition-colors"
-                                >
-                                    🗑️ Delete
-                                </button>
+                                {/* Stats */}
+                                <div className="p-4">
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-gray-500">Patients</p>
+                                            <p className={`text-xl font-bold ${getStatusColor(facility.activePatients, facility.doctorCount)}`}>
+                                                {facility.activePatients}
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-gray-500">Doctors</p>
+                                            <p className="text-xl font-bold text-gray-900">{facility.doctorCount}</p>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                            <p className="text-xs text-gray-500">Staff</p>
+                                            <p className="text-xl font-bold text-gray-900">{facility.staffCount}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 flex justify-between items-center text-sm">
+                                        <div>
+                                            <p className="text-xs text-gray-500">Avg Wait Time</p>
+                                            <p className="font-semibold text-gray-900">{facility.avgWaitMinutes} min</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-gray-500">Doctor:Patient Ratio</p>
+                                            <p className="font-semibold text-gray-900">{facility.doctorToPatientRatio}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Priority Distribution */}
+                                    {facility.priorityDistribution && Object.keys(facility.priorityDistribution).length > 0 && (
+                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                            <p className="text-xs text-gray-500 mb-2">Queue Priority</p>
+                                            <div className="flex gap-1">
+                                                {Object.entries(facility.priorityDistribution).map(([priority, count]) => (
+                                                    <div key={priority} className="flex-1 text-center">
+                                                        <div className={`text-xs text-white rounded ${getPriorityColor(priority)} px-1 py-0.5`}>
+                                                            {count as number}
+                                                        </div>
+                                                        <div className="text-[8px] text-gray-500 mt-0.5">{priority}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Departments */}
+                                    {facility.departments && facility.departments.length > 0 && (
+                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                            <p className="text-xs text-gray-500 mb-2">Departments</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {facility.departments.slice(0, 4).map((dept) => (
+                                                    <span
+                                                        key={dept.code}
+                                                        className={`text-xs px-2 py-0.5 rounded-full ${
+                                                            dept.active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'
+                                                        }`}
+                                                    >
+                                                        {dept.name}: {dept.patients || 0}
+                                                    </span>
+                                                ))}
+                                                {facility.departments.length > 4 && (
+                                                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                                                        +{facility.departments.length - 4} more
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="p-4 bg-gray-50 border-t grid grid-cols-4 gap-2">
+                                    <button
+                                        onClick={() => navigate(`/admin/facility/${facility.id}/staff`)}
+                                        className="px-2 py-1.5 bg-blue-100 text-blue-800 rounded-md text-xs hover:bg-blue-200 transition-colors"
+                                    >
+                                        👥 Staff
+                                    </button>
+                                    <button
+                                        onClick={() => navigate(`/admin/facility/${facility.id}/departments`)}
+                                        className="px-2 py-1.5 bg-purple-100 text-purple-800 rounded-md text-xs hover:bg-purple-200 transition-colors"
+                                    >
+                                        📋 Depts
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setEditingFacility(facility);
+                                            setShowFacilityModal(true);
+                                        }}
+                                        className="px-2 py-1.5 bg-yellow-100 text-yellow-800 rounded-md text-xs hover:bg-yellow-200 transition-colors"
+                                    >
+                                        ✏️ Edit
+                                    </button>
+                                    <button
+                                        onClick={() => setShowDeleteConfirm(facility.id)}
+                                        className="px-2 py-1.5 bg-red-100 text-red-800 rounded-md text-xs hover:bg-red-200 transition-colors"
+                                    >
+                                        🗑️ Delete
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* Empty State */}
@@ -381,7 +395,7 @@ export const DistrictDashboard: React.FC = () => {
                         <p className="text-gray-500 mt-2">Get started by adding your first health center</p>
                         <button
                             onClick={() => {
-                                setEditingFacility(null);
+                                setEditingFacility(undefined);
                                 setShowFacilityModal(true);
                             }}
                             className="mt-4 px-6 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
@@ -430,7 +444,7 @@ export const DistrictDashboard: React.FC = () => {
                 isOpen={showFacilityModal}
                 onClose={() => {
                     setShowFacilityModal(false);
-                    setEditingFacility(null);
+                    setEditingFacility(undefined);
                 }}
                 onSuccess={loadTelemetry}
                 facility={editingFacility}

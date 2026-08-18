@@ -25,6 +25,7 @@ interface AuthResponse {
     };
 }
 
+// ===== UPDATE: Extend LoginResponse to include all possible fields =====
 interface LoginResponse {
     mfaSetupRequired?: boolean;
     requiresMfa?: boolean;
@@ -32,7 +33,18 @@ interface LoginResponse {
     qrCodeUrl?: string;
     accessToken?: string;
     refreshToken?: string;
-    user?: any;
+    user?: {
+        id: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+        role: string;
+        username: string;
+        facilityId?: string;
+        facilityName?: string;
+        departmentId?: string;
+        departmentName?: string;
+    };
 }
 
 const loginSchema = z.object({
@@ -55,10 +67,10 @@ export const Login: React.FC = () => {
         resolver: zodResolver(loginSchema),
     });
 
-    const onSubmit = async (data: LoginFormData) => {
+    const onSubmit = async (data: LoginFormData): Promise<void> => {
         setIsLoading(true);
         try {
-            const response = await authService.login(data.username, data.password);
+            const response: LoginResponse = await authService.login(data.username, data.password);
 
             // First-time MFA enrollment — show QR code, no session yet.
             if (response.mfaSetupRequired && response.userId) {
@@ -78,7 +90,12 @@ export const Login: React.FC = () => {
                 return;
             }
 
-            handleLoginSuccess(response);
+            // ===== FIXED: Check if we have a full auth response =====
+            if (response.accessToken && response.refreshToken && response.user) {
+                handleLoginSuccess(response as AuthResponse);
+            } else {
+                toast.error('Invalid login response from server');
+            }
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Login failed');
         } finally {
@@ -86,7 +103,7 @@ export const Login: React.FC = () => {
         }
     };
 
-    const handleMfaSubmit = async () => {
+    const handleMfaSubmit = async (): Promise<void> => {
         if (!mfaUserId || !totpCode) {
             toast.error('Please enter your MFA code');
             return;
@@ -94,8 +111,14 @@ export const Login: React.FC = () => {
 
         setIsLoading(true);
         try {
-            const response = await authService.verifyMfa(mfaUserId, totpCode);
-            handleLoginSuccess(response);
+            const response: LoginResponse = await authService.verifyMfa(mfaUserId, totpCode);
+
+            // ===== FIXED: Check if we have a full auth response =====
+            if (response.accessToken && response.refreshToken && response.user) {
+                handleLoginSuccess(response as AuthResponse);
+            } else {
+                toast.error('Invalid MFA verification response');
+            }
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'MFA verification failed');
         } finally {
@@ -103,7 +126,7 @@ export const Login: React.FC = () => {
         }
     };
 
-    const handleLoginSuccess = (response: AuthResponse) => {
+    const handleLoginSuccess = (response: AuthResponse): void => {
         // Tokens are set by the auth store's setTokens method
         setTokens(response.accessToken, response.refreshToken);
         setUser(response.user);

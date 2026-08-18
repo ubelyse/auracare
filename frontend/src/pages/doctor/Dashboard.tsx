@@ -19,7 +19,6 @@ export const DoctorDashboard: React.FC = () => {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showLabModal, setShowLabModal] = useState(false);
   const [labServiceCode, setLabServiceCode] = useState('');
-  const [selectedLabService, setSelectedLabService] = useState<LabService | null>(null);
   const [labServices, setLabServices] = useState<LabService[]>([]);
   const [labResult, setLabResult] = useState('');
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
@@ -44,7 +43,7 @@ export const DoctorDashboard: React.FC = () => {
   // Fetch department data if missing
   useEffect(() => {
     if (user?.role === 'DOCTOR' && user?.id && !user?.departmentId) {
-      const fetchDoctorProfile = async () => {
+      const fetchDoctorProfile = async (): Promise<void> => {
         try {
           console.log("🔄 Fetching doctor profile...");
           const response = await api.get(`/doctors/${user.id}`);
@@ -73,7 +72,7 @@ export const DoctorDashboard: React.FC = () => {
   }, [user, updateUser]);
 
   // FETCH LAB SERVICES FROM DATABASE
-  const fetchLabServices = async () => {
+  const fetchLabServices = async (): Promise<void> => {
     setIsLoadingLabServices(true);
     try {
       const response = await doctorService.getLabServices();
@@ -83,7 +82,7 @@ export const DoctorDashboard: React.FC = () => {
         setLabServices(response.labServices);
       } else {
         setLabServices([]);
-        toast.warning('No lab services configured. Please contact admin.');
+        toast.error('No lab services configured. Please contact admin.');
       }
     } catch (error) {
       console.error('Failed to load lab services:', error);
@@ -97,7 +96,7 @@ export const DoctorDashboard: React.FC = () => {
   useEffect(() => {
     if (!user?.facilityId || !user?.departmentId) return;
 
-    const checkEmergencyStatus = async () => {
+    const checkEmergencyStatus = async (): Promise<void> => {
       try {
         const status = await doctorService.getEmergencyStatus(
             user.facilityId!,
@@ -105,7 +104,7 @@ export const DoctorDashboard: React.FC = () => {
         );
         if (status.active) {
           setEmergencyMode(true);
-          toast.info('🚨 Emergency mode is currently active');
+          toast('🚨 Emergency mode is currently active');
         }
       } catch (error) {
         // Silent fail - emergency status is optional
@@ -140,7 +139,7 @@ export const DoctorDashboard: React.FC = () => {
     };
   }, [hasHydrated, user]);
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (): Promise<void> => {
     setIsLoading(true);
     try {
       const queueData = await doctorService.getDoctorQueue();
@@ -180,7 +179,7 @@ export const DoctorDashboard: React.FC = () => {
     }
   };
 
-  const connectSSE = () => {
+  const connectSSE = (): void => {
     if (!user?.facilityId || !user?.departmentId) {
       return;
     }
@@ -199,11 +198,11 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // START CONSULTATION
-  const handleStartConsultation = async (ticketId: string) => {
+  const handleStartConsultation = async (ticketId: string): Promise<void> => {
     try {
       await doctorService.startConsultation(ticketId);
       toast.success('✅ Consultation started');
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Start consultation error:', error);
       const errorMsg = error.response?.data?.message || 'Failed to start consultation';
@@ -212,7 +211,7 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // PREVIEW BILL
-  const handlePreviewBill = async (ticketId: string) => {
+  const handlePreviewBill = async (ticketId: string): Promise<void> => {
     setIsPreviewLoading(true);
     try {
       const response = await api.get('/billing/preview', {
@@ -235,7 +234,7 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // GENERATE BILL
-  const handleGenerateBill = async (ticketId: string) => {
+  const handleGenerateBill = async (ticketId: string): Promise<void> => {
     if (!ticketId) {
       toast.error('Invalid ticket ID');
       return;
@@ -247,7 +246,7 @@ export const DoctorDashboard: React.FC = () => {
       setShowBillPreview(false);
       setBillPreview(null);
       setSelectedTicket(null);
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Generate bill error:', error);
       const errorMsg = error.response?.data?.message || 'Failed to complete consultation';
@@ -256,7 +255,7 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // COMPLETE CONSULTATION
-  const handleCompleteConsultation = async (ticketId: string) => {
+  const handleCompleteConsultation = async (ticketId: string): Promise<void> => {
     if (!ticketId || typeof ticketId !== 'string') {
       toast.error('Invalid ticket ID');
       return;
@@ -295,7 +294,7 @@ export const DoctorDashboard: React.FC = () => {
       setSelectedTicket(null);
       setShowBillPreview(false);
       setBillPreview(null);
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Complete consultation error:', error);
       console.error('Error response:', error.response);
@@ -315,7 +314,7 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // ORDER MULTIPLE LABS
-  const handleOrderMultipleLabs = async (ticketId: string) => {
+  const handleOrderMultipleLabs = async (ticketId: string): Promise<void> => {
     if (selectedLabServices.length === 0) {
       toast.error('Please select at least one lab service');
       return;
@@ -334,7 +333,7 @@ export const DoctorDashboard: React.FC = () => {
             id: loadingToast
           });
         } else {
-          toast.warning(
+          toast.error(
               `⚠️ ${result.successCount} of ${result.totalCount} labs ordered. Failed: ${result.errors?.join(', ') || 'Some services failed'}`,
               { id: loadingToast }
           );
@@ -362,7 +361,7 @@ export const DoctorDashboard: React.FC = () => {
             id: loadingToast
           });
         } else {
-          toast.warning(
+          toast.error(
               `⚠️ ${successCount} of ${selectedLabServices.length} labs ordered. Failed: ${failedServices.join(', ')}`,
               { id: loadingToast }
           );
@@ -372,7 +371,7 @@ export const DoctorDashboard: React.FC = () => {
       setShowLabModal(false);
       setSelectedTicket(null);
       setSelectedLabServices([]);
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Order labs error:', error);
       toast.error(error.response?.data?.message || 'Failed to order labs');
@@ -381,29 +380,8 @@ export const DoctorDashboard: React.FC = () => {
     }
   };
 
-  // ORDER SINGLE LAB
-  const handleOrderLab = async (ticketId: string) => {
-    if (!labServiceCode) {
-      toast.error('Please select a lab service');
-      return;
-    }
-
-    try {
-      await doctorService.orderLabTest(ticketId, labServiceCode);
-      toast.success('🔬 Lab test ordered successfully');
-      setShowLabModal(false);
-      setLabServiceCode('');
-      setSelectedLabService(null);
-      setSelectedLabServices([]);
-      loadDashboard();
-    } catch (error: any) {
-      console.error('Order lab error:', error);
-      toast.error(error.response?.data?.message || 'Failed to order lab test');
-    }
-  };
-
   // COMPLETE LAB
-  const handleCompleteLab = async (ticketId: string) => {
+  const handleCompleteLab = async (ticketId: string): Promise<void> => {
     if (!labResult.trim()) {
       toast.error('Please enter lab results');
       return;
@@ -414,7 +392,7 @@ export const DoctorDashboard: React.FC = () => {
       toast.success('✅ Lab results added');
       setShowLabModal(false);
       setLabResult('');
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Complete lab error:', error);
       toast.error(error.response?.data?.message || 'Failed to complete lab test');
@@ -422,7 +400,7 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // ACTIVATE EMERGENCY
-  const handleEmergencyMode = async () => {
+  const handleEmergencyMode = async (): Promise<void> => {
     const facilityId = user?.facilityId;
     const departmentId = user?.departmentId;
 
@@ -440,7 +418,7 @@ export const DoctorDashboard: React.FC = () => {
       setEmergencyMode(true);
       setShowEmergencyModal(false);
       toast.success(`🚨 Emergency mode activated for ${emergencyDuration} minutes!`);
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Activate emergency error:', error);
       toast.error(error.response?.data?.message || 'Failed to activate emergency mode');
@@ -448,7 +426,7 @@ export const DoctorDashboard: React.FC = () => {
   };
 
   // DEACTIVATE EMERGENCY
-  const handleDeactivateEmergency = async () => {
+  const handleDeactivateEmergency = async (): Promise<void> => {
     if (!confirm('Are you sure you want to deactivate emergency mode?')) return;
 
     try {
@@ -458,14 +436,14 @@ export const DoctorDashboard: React.FC = () => {
       );
       setEmergencyMode(false);
       toast.success('Emergency mode deactivated');
-      loadDashboard();
+      await loadDashboard();
     } catch (error: any) {
       console.error('Deactivate emergency error:', error);
       toast.error(error.response?.data?.message || 'Failed to deactivate emergency');
     }
   };
 
-  const getPriorityBadge = (priority: string) => {
+  const getPriorityBadge = (priority: string): string => {
     const colors: Record<string, string> = {
       EMERGENCY: 'bg-red-600 text-white',
       HIGH: 'bg-orange-500 text-white',
@@ -475,7 +453,7 @@ export const DoctorDashboard: React.FC = () => {
     return colors[priority] || colors.LOW;
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string): string => {
     const colors: Record<string, string> = {
       CHECKED_IN: 'bg-gray-400 text-white',
       TRIAGED: 'bg-indigo-500 text-white',
@@ -489,7 +467,7 @@ export const DoctorDashboard: React.FC = () => {
     return colors[status] || 'bg-gray-400 text-white';
   };
 
-  const formatPrice = (price: number) => {
+  const formatPrice = (price: number): string => {
     return price.toLocaleString('rw-RW');
   };
 
@@ -796,7 +774,6 @@ export const DoctorDashboard: React.FC = () => {
                         setShowLabModal(false);
                         setSelectedTicket(null);
                         setLabServiceCode('');
-                        setSelectedLabService(null);
                         setSelectedLabServices([]);
                         setLabResult('');
                       }}
@@ -926,7 +903,6 @@ export const DoctorDashboard: React.FC = () => {
                               setShowLabModal(false);
                               setSelectedTicket(null);
                               setLabServiceCode('');
-                              setSelectedLabService(null);
                               setSelectedLabServices([]);
                             }}
                             className="flex-1 py-2 px-4 border border-gray-300 rounded-md hover:bg-gray-50"

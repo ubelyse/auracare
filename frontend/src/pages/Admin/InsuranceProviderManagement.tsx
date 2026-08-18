@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 import { adminService } from '../../services/admin';
 import { useAuthStore } from '../../stores/authStore';
 
+// ===== IMPORT the actual type from admin service =====
+import { InsuranceProvider as ServiceInsuranceProvider } from '../../services/admin';
+
 // ===== ADD: Proper type =====
 interface InsuranceProvider {
     id: string;
@@ -43,14 +46,26 @@ export const InsuranceProviderManagement: React.FC = () => {
             return;
         }
 
-        const loadProviders = async () => {
+        const loadProviders = async (): Promise<void> => {
             if (!isMounted) return;
 
             setIsLoading(true);
             try {
-                const data = await adminService.getInsuranceProviders();
+                const data: ServiceInsuranceProvider[] = await adminService.getInsuranceProviders();
                 if (isMounted) {
-                    setProviders(data || []);
+                    // ===== Transform ServiceInsuranceProvider to InsuranceProvider =====
+                    const transformedData: InsuranceProvider[] = data.map((provider: ServiceInsuranceProvider) => ({
+                        id: provider.id,
+                        code: provider.code,
+                        name: provider.name,
+                        patientCoPayPercentage: provider.patientCoPayPercentage,
+                        maxCoverageAmount: provider.maxCoverageAmount || 0,
+                        active: provider.active,
+                        contactEmail: provider.contactEmail || '',
+                        contactPhone: provider.contactPhone || '',
+                        requirements: provider.requirements || '',
+                    }));
+                    setProviders(transformedData);
                 }
             } catch (error: any) {
                 if (isMounted) {
@@ -70,16 +85,28 @@ export const InsuranceProviderManagement: React.FC = () => {
         };
     }, [user, navigate]);
 
-    const loadProviders = async () => {
+    const loadProviders = async (): Promise<void> => {
         try {
-            const data = await adminService.getInsuranceProviders();
-            setProviders(data || []);
+            const data: ServiceInsuranceProvider[] = await adminService.getInsuranceProviders();
+            // ===== Transform ServiceInsuranceProvider to InsuranceProvider =====
+            const transformedData: InsuranceProvider[] = data.map((provider: ServiceInsuranceProvider) => ({
+                id: provider.id,
+                code: provider.code,
+                name: provider.name,
+                patientCoPayPercentage: provider.patientCoPayPercentage,
+                maxCoverageAmount: provider.maxCoverageAmount || 0,
+                active: provider.active,
+                contactEmail: provider.contactEmail || '',
+                contactPhone: provider.contactPhone || '',
+                requirements: provider.requirements || '',
+            }));
+            setProviders(transformedData);
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Failed to load insurance providers');
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent): Promise<void> => {
         e.preventDefault();
         try {
             if (editingProvider) {
@@ -101,13 +128,13 @@ export const InsuranceProviderManagement: React.FC = () => {
                 contactPhone: '',
                 requirements: '',
             });
-            loadProviders();
+            await loadProviders(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Operation failed');
         }
     };
 
-    const handleEdit = (provider: InsuranceProvider) => {
+    const handleEdit = (provider: InsuranceProvider): void => {
         setEditingProvider(provider);
         setFormData({
             code: provider.code,
@@ -122,14 +149,14 @@ export const InsuranceProviderManagement: React.FC = () => {
         setShowModal(true);
     };
 
-    const handleDeactivate = async (providerId: string) => {
+    const handleDeactivate = async (providerId: string): Promise<void> => {
         if (!confirm('Deactivate this insurance provider?')) {
             return;
         }
         try {
             await adminService.deleteInsuranceProvider(providerId);
             toast.success('Provider deactivated');
-            loadProviders();
+            await loadProviders(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Failed to deactivate provider');
         }

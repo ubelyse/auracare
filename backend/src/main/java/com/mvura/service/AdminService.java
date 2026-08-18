@@ -522,13 +522,384 @@ public class AdminService {
         return saved;
     }
 
-    public List<User> getStaffByFacility(UUID facilityId) {
+    // 🔥 FIXED: Return UserSummaryDTO instead of full User
+    public List<UserSummaryDTO> getStaffByFacility(UUID facilityId) {
         List<UserRole> roles = List.of(UserRole.DOCTOR, UserRole.STAFF, UserRole.FACILITY_ADMIN);
-        return userRepository.findByFacilityIdAndRoleIn(facilityId, roles);
+        List<User> staff = userRepository.findByFacilityIdAndRoleIn(facilityId, roles);
+        return staff.stream().map(this::convertToUserSummaryDTO).collect(Collectors.toList());
     }
 
-    public List<User> getDoctorsByDepartment(UUID departmentId) {
-        return departmentRepository.findAvailableDoctorsByDepartment(departmentId);
+    // 🔥 FIXED: Return UserSummaryDTO instead of full User
+    public List<UserSummaryDTO> getDoctorsByDepartment(UUID departmentId) {
+        List<User> doctors = departmentRepository.findAvailableDoctorsByDepartment(departmentId);
+        return doctors.stream().map(this::convertToUserSummaryDTO).collect(Collectors.toList());
+    }
+
+    // ==================== USER MANAGEMENT ====================
+
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+
+    // 🔥 NEW: Convert User to UserSummaryDTO
+    private UserSummaryDTO convertToUserSummaryDTO(User user) {
+        UserSummaryDTO dto = new UserSummaryDTO();
+        dto.setId(user.getId());
+        dto.setUsername(user.getUsername());
+        dto.setFirstName(user.getFirstName());
+        dto.setLastName(user.getLastName());
+        dto.setEmail(user.getEmail());
+        dto.setPhone(user.getPhone());
+        dto.setRole(user.getRole() != null ? user.getRole().name() : "UNKNOWN");
+        dto.setActive(user.isActive());
+        dto.setEmailVerified(user.isEmailVerified());
+        dto.setCreatedAt(user.getCreatedAt());
+
+        if (user.getPrimaryFacility() != null) {
+            dto.setFacilityId(user.getPrimaryFacility().getId());
+            dto.setFacilityName(user.getPrimaryFacility().getName());
+        }
+
+        if (user.getPrimaryDepartment() != null) {
+            dto.setDepartmentId(user.getPrimaryDepartment().getId());
+            dto.setDepartmentName(user.getPrimaryDepartment().getName());
+        }
+
+        return dto;
+    }
+
+    // 🔥 ADDED: Missing method called by AdminController
+    public List<UserSummaryDTO> getAllUserSummaries() {
+        List<User> users = userRepository.findAll();
+        return users.stream().map(this::convertToUserSummaryDTO).collect(Collectors.toList());
+    }
+
+    public User getUserById(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+
+    @Transactional
+    public User updateUserRole(UUID userId, String role, String actorUsername, String ipAddress) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        UserRole newRole = UserRole.valueOf(role);
+        user.setRole(newRole);
+        User saved = userRepository.save(user);
+
+        try {
+            auditService.logAction(
+                    "USER_ROLE_UPDATED",
+                    "USER",
+                    userId.toString(),
+                    actorUsername,
+                    ipAddress,
+                    null,
+                    Map.of("newRole", role, "username", saved.getUsername())
+            );
+        } catch (Exception e) {
+            log.warn("Failed to log audit: {}", e.getMessage());
+        }
+
+        return saved;
+    }
+
+    @Transactional
+    public User toggleUserActive(UUID userId, String actorUsername, String ipAddress) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        boolean newStatus = !user.isActive();
+        user.setActive(newStatus);
+
+        User saved = userRepository.save(user);
+
+        try {
+            auditService.logAction(
+                    "USER_ACTIVE_TOGGLED",
+                    "USER",
+                    userId.toString(),
+                    actorUsername,
+                    ipAddress,
+                    null,
+                    Map.of(
+                            "isActive", saved.isActive(),
+                            "username", saved.getUsername(),
+                            "userId", saved.getId()
+                    )
+            );
+        } catch (Exception e) {
+            log.warn("Failed to log audit: {}", e.getMessage());
+        }
+
+        return saved;
+    }
+
+    @Transactional
+    public User createUserWithRole(AdminCreateUserRequest request, String actorUsername, String ipAddress) {
+        if (userRepository.existsByUsername(request.getUsername()))
+            throw new RuntimeException("Username already taken");
+        if (userRepository.existsByEmail(request.getEmail()))
+            throw new RuntimeException("Email already registered");
+
+        User user = User.builder()
+                .username(request.getUsername())
+                .email(request.getEmail())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
+                .phone(request.getPhone())
+                .role(request.getRole())
+                .active(true)
+                .emailVerified(false)
+                .build();
+
+        if (request.getFacilityId() != null) {
+            Facility facility = facilityRepository.findById(request.getFacilityId())
+                    .orElseThrow(() -> new RuntimeException("Facility not found"));
+            user.setPrimaryFacility(facility);
+            if (user.getFacilities() == null) {
+                user.setFacilities(new HashSet<>());
+            }
+            user.getFacilities().add(facility);
+        }
+
+        if (request.getDepartmentId() != null) {
+            Department department = departmentRepository.findById(request.getDepartmentId())
+                    .orElseThrow(() -> new RuntimeException("Department not found"));
+
+            if (user.getDepartments() == null) {
+                user.setDepartments(new HashSet<>());
+            }
+            user.getDepartments().add(department);
+            user.setPrimaryDepartment(department);
+        }
+
+        User savedUser = userRepository.save(user);
+
+        String tokenString = UUID.randomUUID().toString();
+
+        VerificationToken tokenEntity = VerificationToken.builder()
+                .user(savedUser)
+                .token(tokenString)
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .used(false)
+                .build();
+
+        verificationTokenRepository.save(tokenEntity);
+
+        try {
+            emailService.sendVerificationEmail(savedUser, tokenString);
+        } catch (Exception e) {
+            log.error("Failed to send verification email to {}: {}", savedUser.getEmail(), e.getMessage(), e);
+        }
+
+        try {
+            Map<String, Object> details = new HashMap<>();
+            details.put("role", savedUser.getRole().name());
+            details.put("createdUsername", savedUser.getUsername());
+            details.put("facilityId", request.getFacilityId() != null ? request.getFacilityId().toString() : "none");
+            details.put("departmentId", request.getDepartmentId() != null ? request.getDepartmentId().toString() : "none");
+
+            auditService.logAction(
+                    "USER_CREATED_BY_ADMIN",
+                    "USER",
+                    savedUser.getId().toString(),
+                    actorUsername,
+                    ipAddress,
+                    null,
+                    details
+            );
+        } catch (Exception e) {
+            log.warn("Failed to log audit: {}", e.getMessage());
+        }
+
+        return savedUser;
+    }
+
+    // ==================== INSURANCE PROVIDER MANAGEMENT ====================
+
+    @Transactional
+    public InsuranceProvider createInsuranceProvider(InsuranceProvider provider, String username, String ipAddress) {
+        if (insuranceProviderRepository.findByCode(provider.getCode()).isPresent()) {
+            throw new RuntimeException("Insurance provider with code '" + provider.getCode() + "' already exists");
+        }
+
+        if (provider.getPatientCoPayPercentage() == null) {
+            provider.setPatientCoPayPercentage(BigDecimal.valueOf(10));
+        }
+
+        InsuranceProvider saved = insuranceProviderRepository.save(provider);
+
+        auditService.logAction(
+                "INSURANCE_PROVIDER_CREATED",
+                "INSURANCE_PROVIDER",
+                saved.getId().toString(),
+                username,
+                ipAddress,
+                null,
+                Map.of("code", saved.getCode(), "name", saved.getName())
+        );
+
+        return saved;
+    }
+
+    @Transactional
+    public InsuranceProvider updateInsuranceProvider(UUID providerId, InsuranceProvider provider,
+                                                     String username, String ipAddress) {
+        InsuranceProvider existing = insuranceProviderRepository.findById(providerId)
+                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
+
+        existing.setName(provider.getName());
+        existing.setDescription(provider.getDescription());
+        existing.setPatientCoPayPercentage(provider.getPatientCoPayPercentage());
+        existing.setActive(provider.isActive());
+        existing.setContactEmail(provider.getContactEmail());
+        existing.setContactPhone(provider.getContactPhone());
+        existing.setWebsite(provider.getWebsite());
+        existing.setCoverageDetails(provider.getCoverageDetails());
+        existing.setExcludedServices(provider.getExcludedServices());
+
+        InsuranceProvider saved = insuranceProviderRepository.save(existing);
+
+        auditService.logAction(
+                "INSURANCE_PROVIDER_UPDATED",
+                "INSURANCE_PROVIDER",
+                providerId.toString(),
+                username,
+                ipAddress,
+                null,
+                Map.of("code", saved.getCode(), "name", saved.getName())
+        );
+
+        return saved;
+    }
+
+    public List<InsuranceProvider> getAllInsuranceProviders() {
+        return insuranceProviderRepository.findAll();
+    }
+
+    public InsuranceProvider getInsuranceProvider(UUID providerId) {
+        return insuranceProviderRepository.findById(providerId)
+                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
+    }
+
+    @Transactional
+    public void deleteInsuranceProvider(UUID providerId, String username, String ipAddress) {
+        InsuranceProvider provider = insuranceProviderRepository.findById(providerId)
+                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
+        provider.setActive(false);
+        insuranceProviderRepository.save(provider);
+
+        auditService.logAction(
+                "INSURANCE_PROVIDER_DEACTIVATED",
+                "INSURANCE_PROVIDER",
+                providerId.toString(),
+                username,
+                ipAddress,
+                null,
+                Map.of("code", provider.getCode())
+        );
+    }
+
+    // ==================== SERVICE PRICING MANAGEMENT ====================
+
+    @Transactional
+    public ServicePricing createServicePricing(ServicePricing pricing, String username, String ipAddress) {
+        if (servicePricingRepository.findByServiceCode(pricing.getServiceCode()).isPresent()) {
+            throw new RuntimeException("Service with code '" + pricing.getServiceCode() + "' already exists");
+        }
+
+        if (pricing.getMutuelleCoPayPercent() == null) {
+            pricing.setMutuelleCoPayPercent(BigDecimal.valueOf(10));
+        }
+        if (pricing.getRssbCoPayPercent() == null) {
+            pricing.setRssbCoPayPercent(BigDecimal.valueOf(15));
+        }
+        if (pricing.getMmiCoPayPercent() == null) {
+            pricing.setMmiCoPayPercent(BigDecimal.valueOf(15));
+        }
+
+        ServicePricing saved = servicePricingRepository.save(pricing);
+
+        auditService.logAction(
+                "SERVICE_PRICING_CREATED",
+                "SERVICE_PRICING",
+                saved.getId().toString(),
+                username,
+                ipAddress,
+                null,
+                Map.of("serviceCode", saved.getServiceCode(), "serviceName", saved.getServiceName())
+        );
+
+        return saved;
+    }
+
+    @Transactional
+    public ServicePricing updateServicePricing(UUID pricingId, ServicePricing pricing,
+                                               String username, String ipAddress) {
+        ServicePricing existing = servicePricingRepository.findById(pricingId)
+                .orElseThrow(() -> new RuntimeException("Service pricing not found"));
+
+        existing.setServiceName(pricing.getServiceName());
+        existing.setCategory(pricing.getCategory());
+        existing.setBasePrice(pricing.getBasePrice());
+        existing.setMutuelleCoPayPercent(pricing.getMutuelleCoPayPercent());
+        existing.setRssbCoPayPercent(pricing.getRssbCoPayPercent());
+        existing.setMmiCoPayPercent(pricing.getMmiCoPayPercent());
+        existing.setDescription(pricing.getDescription());
+        existing.setActive(pricing.isActive());
+        existing.setFacilityId(pricing.getFacilityId());
+
+        ServicePricing saved = servicePricingRepository.save(existing);
+
+        auditService.logAction(
+                "SERVICE_PRICING_UPDATED",
+                "SERVICE_PRICING",
+                pricingId.toString(),
+                username,
+                ipAddress,
+                null,
+                Map.of("serviceCode", saved.getServiceCode())
+        );
+
+        return saved;
+    }
+
+    public List<ServicePricing> getAllServicePricing() {
+        return servicePricingRepository.findAll();
+    }
+
+    public ServicePricing getServicePricing(UUID pricingId) {
+        return servicePricingRepository.findById(pricingId)
+                .orElseThrow(() -> new RuntimeException("Service pricing not found"));
+    }
+
+    public List<ServicePricing> getServicePricingByCategory(String category) {
+        return servicePricingRepository.findByCategory(category);
+    }
+
+    public List<ServicePricing> getServicePricingByFacility(UUID facilityId) {
+        return servicePricingRepository.findGlobalAndFacilityPricing(facilityId);
+    }
+
+    @Transactional
+    public void deleteServicePricing(UUID pricingId, String username, String ipAddress) {
+        ServicePricing pricing = servicePricingRepository.findById(pricingId)
+                .orElseThrow(() -> new RuntimeException("Service pricing not found"));
+        pricing.setActive(false);
+        servicePricingRepository.save(pricing);
+
+        auditService.logAction(
+                "SERVICE_PRICING_DEACTIVATED",
+                "SERVICE_PRICING",
+                pricingId.toString(),
+                username,
+                ipAddress,
+                null,
+                Map.of("serviceCode", pricing.getServiceCode())
+        );
     }
 
     // ==================== TELEMETRY & METRICS ====================
@@ -921,7 +1292,6 @@ public class AdminService {
         Map<String, Object> result = new HashMap<>();
 
         try {
-            // Parse dates
             LocalDateTime start = startDate != null && !startDate.isEmpty() ?
                     LocalDateTime.parse(startDate + "T00:00:00") :
                     LocalDateTime.now().minusDays(30);
@@ -929,7 +1299,6 @@ public class AdminService {
                     LocalDateTime.parse(endDate + "T23:59:59") :
                     LocalDateTime.now();
 
-            // Call the audit service method
             List<AuditLog> logs = auditService.getAuditLogs(action, entityType, start, end);
 
             result.put("logs", logs);
@@ -949,361 +1318,5 @@ public class AdminService {
         }
 
         return result;
-    }
-
-    // ==================== USER MANAGEMENT ====================
-
-    public List<User> getAllUsers() {
-        return userRepository.findAll();
-    }
-
-    public List<UserSummaryDTO> getAllUserSummaries() {
-        List<User> users = userRepository.findAll();
-        return users.stream().map(user -> {
-            UserSummaryDTO dto = new UserSummaryDTO();
-            dto.setId(user.getId());
-            dto.setUsername(user.getUsername());
-            dto.setFirstName(user.getFirstName());
-            dto.setLastName(user.getLastName());
-            dto.setEmail(user.getEmail());
-            dto.setPhone(user.getPhone());
-            dto.setRole(user.getRole().name());
-            dto.setActive(user.isActive());
-            dto.setEmailVerified(user.isEmailVerified());
-            dto.setFacilityName(user.getPrimaryFacility() != null ? user.getPrimaryFacility().getName() : null);
-            dto.setFacilityId(user.getPrimaryFacility() != null ? user.getPrimaryFacility().getId() : null);
-            dto.setDepartmentId(user.getPrimaryDepartment() != null ? user.getPrimaryDepartment().getId() : null);
-            dto.setDepartmentName(user.getPrimaryDepartment() != null ? user.getPrimaryDepartment().getName() : null);
-            dto.setCreatedAt(user.getCreatedAt());
-            return dto;
-        }).collect(Collectors.toList());
-    }
-
-    public User getUserById(UUID userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-    }
-
-    @Transactional
-    public User updateUserRole(UUID userId, String role, String actorUsername, String ipAddress) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        UserRole newRole = UserRole.valueOf(role);
-        user.setRole(newRole);
-        User saved = userRepository.save(user);
-
-        try {
-            auditService.logAction(
-                    "USER_ROLE_UPDATED",
-                    "USER",
-                    userId.toString(),
-                    actorUsername,
-                    ipAddress,
-                    null,
-                    Map.of("newRole", role, "username", saved.getUsername())
-            );
-        } catch (Exception e) {
-            log.warn("Failed to log audit: {}", e.getMessage());
-        }
-
-        return saved;
-    }
-
-    @Transactional
-    public User toggleUserActive(UUID userId, String actorUsername, String ipAddress) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        boolean newStatus = !user.isActive();
-        user.setActive(newStatus);
-
-        User saved = userRepository.save(user);
-
-        try {
-            auditService.logAction(
-                    "USER_ACTIVE_TOGGLED",
-                    "USER",
-                    userId.toString(),
-                    actorUsername,
-                    ipAddress,
-                    null,
-                    Map.of(
-                            "isActive", saved.isActive(),
-                            "username", saved.getUsername(),
-                            "userId", saved.getId()
-                    )
-            );
-        } catch (Exception e) {
-            log.warn("Failed to log audit: {}", e.getMessage());
-        }
-
-        return saved;
-    }
-
-    @Transactional
-    public User createUserWithRole(AdminCreateUserRequest request, String actorUsername, String ipAddress) {
-        if (userRepository.existsByUsername(request.getUsername()))
-            throw new RuntimeException("Username already taken");
-        if (userRepository.existsByEmail(request.getEmail()))
-            throw new RuntimeException("Email already registered");
-
-        User user = User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
-                .password(passwordEncoder.encode(request.getPassword()))
-                .firstName(request.getFirstName())
-                .lastName(request.getLastName())
-                .phone(request.getPhone())
-                .role(request.getRole())
-                .active(true)
-                .emailVerified(false)
-                .build();
-
-        if (request.getFacilityId() != null) {
-            Facility facility = facilityRepository.findById(request.getFacilityId())
-                    .orElseThrow(() -> new RuntimeException("Facility not found"));
-            user.setPrimaryFacility(facility);
-            if (user.getFacilities() == null) {
-                user.setFacilities(new HashSet<>());
-            }
-            user.getFacilities().add(facility);
-        }
-
-        if (request.getDepartmentId() != null) {
-            Department department = departmentRepository.findById(request.getDepartmentId())
-                    .orElseThrow(() -> new RuntimeException("Department not found"));
-
-            if (user.getDepartments() == null) {
-                user.setDepartments(new HashSet<>());
-            }
-            user.getDepartments().add(department);
-            user.setPrimaryDepartment(department);
-        }
-
-        User savedUser = userRepository.save(user);
-
-        String tokenString = UUID.randomUUID().toString();
-
-        VerificationToken tokenEntity = VerificationToken.builder()
-                .user(savedUser)
-                .token(tokenString)
-                .expiresAt(LocalDateTime.now().plusHours(24))
-                .used(false)
-                .build();
-
-        verificationTokenRepository.save(tokenEntity);
-
-        try {
-            emailService.sendVerificationEmail(savedUser, tokenString);
-        } catch (Exception e) {
-            log.error("Failed to send verification email to {}: {}", savedUser.getEmail(), e.getMessage(), e);
-        }
-
-        try {
-            Map<String, Object> details = new HashMap<>();
-            details.put("role", savedUser.getRole().name());
-            details.put("createdUsername", savedUser.getUsername());
-            details.put("facilityId", request.getFacilityId() != null ? request.getFacilityId().toString() : "none");
-            details.put("departmentId", request.getDepartmentId() != null ? request.getDepartmentId().toString() : "none");
-
-            auditService.logAction(
-                    "USER_CREATED_BY_ADMIN",
-                    "USER",
-                    savedUser.getId().toString(),
-                    actorUsername,
-                    ipAddress,
-                    null,
-                    details
-            );
-        } catch (Exception e) {
-            log.warn("Failed to log audit: {}", e.getMessage());
-        }
-
-        return savedUser;
-    }
-
-    // ==================== INSURANCE PROVIDER MANAGEMENT ====================
-
-    @Transactional
-    public InsuranceProvider createInsuranceProvider(InsuranceProvider provider, String username, String ipAddress) {
-        if (insuranceProviderRepository.findByCode(provider.getCode()).isPresent()) {
-            throw new RuntimeException("Insurance provider with code '" + provider.getCode() + "' already exists");
-        }
-
-        if (provider.getPatientCoPayPercentage() == null) {
-            provider.setPatientCoPayPercentage(BigDecimal.valueOf(10));
-        }
-
-        InsuranceProvider saved = insuranceProviderRepository.save(provider);
-
-        auditService.logAction(
-                "INSURANCE_PROVIDER_CREATED",
-                "INSURANCE_PROVIDER",
-                saved.getId().toString(),
-                username,
-                ipAddress,
-                null,
-                Map.of("code", saved.getCode(), "name", saved.getName())
-        );
-
-        return saved;
-    }
-
-    @Transactional
-    public InsuranceProvider updateInsuranceProvider(UUID providerId, InsuranceProvider provider,
-                                                     String username, String ipAddress) {
-        InsuranceProvider existing = insuranceProviderRepository.findById(providerId)
-                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
-
-        existing.setName(provider.getName());
-        existing.setDescription(provider.getDescription());
-        existing.setPatientCoPayPercentage(provider.getPatientCoPayPercentage());
-        existing.setActive(provider.isActive());
-        existing.setContactEmail(provider.getContactEmail());
-        existing.setContactPhone(provider.getContactPhone());
-        existing.setWebsite(provider.getWebsite());
-        existing.setCoverageDetails(provider.getCoverageDetails());
-        existing.setExcludedServices(provider.getExcludedServices());
-
-        InsuranceProvider saved = insuranceProviderRepository.save(existing);
-
-        auditService.logAction(
-                "INSURANCE_PROVIDER_UPDATED",
-                "INSURANCE_PROVIDER",
-                providerId.toString(),
-                username,
-                ipAddress,
-                null,
-                Map.of("code", saved.getCode(), "name", saved.getName())
-        );
-
-        return saved;
-    }
-
-    public List<InsuranceProvider> getAllInsuranceProviders() {
-        return insuranceProviderRepository.findAll();
-    }
-
-    public InsuranceProvider getInsuranceProvider(UUID providerId) {
-        return insuranceProviderRepository.findById(providerId)
-                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
-    }
-
-    @Transactional
-    public void deleteInsuranceProvider(UUID providerId, String username, String ipAddress) {
-        InsuranceProvider provider = insuranceProviderRepository.findById(providerId)
-                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
-        provider.setActive(false);
-        insuranceProviderRepository.save(provider);
-
-        auditService.logAction(
-                "INSURANCE_PROVIDER_DEACTIVATED",
-                "INSURANCE_PROVIDER",
-                providerId.toString(),
-                username,
-                ipAddress,
-                null,
-                Map.of("code", provider.getCode())
-        );
-    }
-
-    // ==================== SERVICE PRICING MANAGEMENT ====================
-
-    @Transactional
-    public ServicePricing createServicePricing(ServicePricing pricing, String username, String ipAddress) {
-        if (servicePricingRepository.findByServiceCode(pricing.getServiceCode()).isPresent()) {
-            throw new RuntimeException("Service with code '" + pricing.getServiceCode() + "' already exists");
-        }
-
-        if (pricing.getMutuelleCoPayPercent() == null) {
-            pricing.setMutuelleCoPayPercent(BigDecimal.valueOf(10));
-        }
-        if (pricing.getRssbCoPayPercent() == null) {
-            pricing.setRssbCoPayPercent(BigDecimal.valueOf(15));
-        }
-        if (pricing.getMmiCoPayPercent() == null) {
-            pricing.setMmiCoPayPercent(BigDecimal.valueOf(15));
-        }
-
-        ServicePricing saved = servicePricingRepository.save(pricing);
-
-        auditService.logAction(
-                "SERVICE_PRICING_CREATED",
-                "SERVICE_PRICING",
-                saved.getId().toString(),
-                username,
-                ipAddress,
-                null,
-                Map.of("serviceCode", saved.getServiceCode(), "serviceName", saved.getServiceName())
-        );
-
-        return saved;
-    }
-
-    @Transactional
-    public ServicePricing updateServicePricing(UUID pricingId, ServicePricing pricing,
-                                               String username, String ipAddress) {
-        ServicePricing existing = servicePricingRepository.findById(pricingId)
-                .orElseThrow(() -> new RuntimeException("Service pricing not found"));
-
-        existing.setServiceName(pricing.getServiceName());
-        existing.setCategory(pricing.getCategory());
-        existing.setBasePrice(pricing.getBasePrice());
-        existing.setMutuelleCoPayPercent(pricing.getMutuelleCoPayPercent());
-        existing.setRssbCoPayPercent(pricing.getRssbCoPayPercent());
-        existing.setMmiCoPayPercent(pricing.getMmiCoPayPercent());
-        existing.setDescription(pricing.getDescription());
-        existing.setActive(pricing.isActive());
-        existing.setFacilityId(pricing.getFacilityId());
-
-        ServicePricing saved = servicePricingRepository.save(existing);
-
-        auditService.logAction(
-                "SERVICE_PRICING_UPDATED",
-                "SERVICE_PRICING",
-                pricingId.toString(),
-                username,
-                ipAddress,
-                null,
-                Map.of("serviceCode", saved.getServiceCode())
-        );
-
-        return saved;
-    }
-
-    public List<ServicePricing> getAllServicePricing() {
-        return servicePricingRepository.findAll();
-    }
-
-    public ServicePricing getServicePricing(UUID pricingId) {
-        return servicePricingRepository.findById(pricingId)
-                .orElseThrow(() -> new RuntimeException("Service pricing not found"));
-    }
-
-    public List<ServicePricing> getServicePricingByCategory(String category) {
-        return servicePricingRepository.findByCategory(category);
-    }
-
-    public List<ServicePricing> getServicePricingByFacility(UUID facilityId) {
-        return servicePricingRepository.findGlobalAndFacilityPricing(facilityId);
-    }
-
-    @Transactional
-    public void deleteServicePricing(UUID pricingId, String username, String ipAddress) {
-        ServicePricing pricing = servicePricingRepository.findById(pricingId)
-                .orElseThrow(() -> new RuntimeException("Service pricing not found"));
-        pricing.setActive(false);
-        servicePricingRepository.save(pricing);
-
-        auditService.logAction(
-                "SERVICE_PRICING_DEACTIVATED",
-                "SERVICE_PRICING",
-                pricingId.toString(),
-                username,
-                ipAddress,
-                null,
-                Map.of("serviceCode", pricing.getServiceCode())
-        );
     }
 }

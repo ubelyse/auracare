@@ -4,6 +4,10 @@ import toast from 'react-hot-toast';
 import { adminService } from '../../services/admin';
 import { useAuthStore } from '../../stores/authStore';
 
+// ===== IMPORT the actual type from admin service =====
+import { ServicePricing as ServiceServicePricing } from '../../services/admin';
+
+// ===== ADD: Proper type =====
 interface ServicePricing {
     id: string;
     serviceCode: string;
@@ -77,7 +81,7 @@ export const ServicePricingManagement: React.FC = () => {
     };
 
     // ===== When editing, set the form data =====
-    const handleEdit = (pricing: ServicePricing) => {
+    const handleEdit = (pricing: ServicePricing): void => {
         setEditingPricing(pricing);
         setFormData({
             serviceCode: pricing.serviceCode,
@@ -102,14 +106,28 @@ export const ServicePricingManagement: React.FC = () => {
             return;
         }
 
-        const loadPricings = async () => {
+        const loadPricings = async (): Promise<void> => {
             if (!isMounted) return;
 
             setIsLoading(true);
             try {
-                const data = await adminService.getServicePricing();
+                const data: ServiceServicePricing[] = await adminService.getServicePricing();
                 if (isMounted) {
-                    setPricings(data || []);
+                    // ===== Transform ServiceServicePricing to ServicePricing =====
+                    const transformedData: ServicePricing[] = data.map((item: ServiceServicePricing) => ({
+                        id: item.id,
+                        serviceCode: item.serviceCode,
+                        serviceName: item.serviceName,
+                        category: item.category,
+                        basePrice: item.basePrice,
+                        mutuellePrice: item.mutuellePrice || 0,
+                        rssbPrice: item.rssbPrice || 0,
+                        mmiPrice: (item as any).mmiPrice || 0, // Handle if mmiPrice exists
+                        description: item.description || '',
+                        active: item.active,
+                        facilityId: item.facilityId || null,
+                    }));
+                    setPricings(transformedData);
                 }
             } catch (error: any) {
                 if (isMounted) {
@@ -129,16 +147,30 @@ export const ServicePricingManagement: React.FC = () => {
         };
     }, [user, navigate]);
 
-    const loadPricings = async () => {
+    const loadPricings = async (): Promise<void> => {
         try {
-            const data = await adminService.getServicePricing();
-            setPricings(data || []);
+            const data: ServiceServicePricing[] = await adminService.getServicePricing();
+            // ===== Transform ServiceServicePricing to ServicePricing =====
+            const transformedData: ServicePricing[] = data.map((item: ServiceServicePricing) => ({
+                id: item.id,
+                serviceCode: item.serviceCode,
+                serviceName: item.serviceName,
+                category: item.category,
+                basePrice: item.basePrice,
+                mutuellePrice: item.mutuellePrice || 0,
+                rssbPrice: item.rssbPrice || 0,
+                mmiPrice: (item as any).mmiPrice || 0,
+                description: item.description || '',
+                active: item.active,
+                facilityId: item.facilityId || null,
+            }));
+            setPricings(transformedData);
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Failed to load service pricing');
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent): Promise<void> => {
         e.preventDefault();
         try {
             if (editingPricing) {
@@ -162,26 +194,26 @@ export const ServicePricingManagement: React.FC = () => {
                 active: true,
                 facilityId: null,
             });
-            loadPricings();
+            await loadPricings(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Operation failed');
         }
     };
 
-    const handleDeactivate = async (pricingId: string) => {
+    const handleDeactivate = async (pricingId: string): Promise<void> => {
         if (!confirm('Deactivate this service pricing?')) {
             return;
         }
         try {
             await adminService.deleteServicePricing(pricingId);
             toast.success('Service deactivated');
-            loadPricings();
+            await loadPricings(); // ===== FIXED: Added await =====
         } catch (error: any) {
             toast.error(error.response?.data?.message || 'Failed to deactivate service');
         }
     };
 
-    const getCategoryBadge = (category: string) => {
+    const getCategoryBadge = (category: string): string => {
         const colors: Record<string, string> = {
             CONSULTATION: 'bg-blue-100 text-blue-800',
             LAB: 'bg-purple-100 text-purple-800',
@@ -194,7 +226,7 @@ export const ServicePricingManagement: React.FC = () => {
         return colors[category] || 'bg-gray-100 text-gray-800';
     };
 
-    const formatPrice = (price: number) => {
+    const formatPrice = (price: number): string => {
         return price.toLocaleString('rw-RW');
     };
 

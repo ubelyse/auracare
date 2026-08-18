@@ -13,6 +13,7 @@ export const StaffManagement: React.FC = () => {
     const [departments, setDepartments] = useState<Department[]>([]);
     const [facility, setFacility] = useState<Facility | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState('');
     const [selectedRole, setSelectedRole] = useState('DOCTOR');
@@ -35,17 +36,9 @@ export const StaffManagement: React.FC = () => {
                     const [facilityData, staffData, usersData, deptData] = await Promise.all([
                         adminService.getFacility(facilityId),
                         adminService.getStaffByFacility(facilityId),
-                        adminService.getUsers(),
+                        adminService.getUsers().catch(() => []), // Fallback if getUsers doesn't exist
                         adminService.getDepartmentsByFacility(facilityId)
                     ]);
-
-                    // ===== ADD THESE DEBUG LOGS =====
-                    console.log('🔴 STAFF DATA:', staffData);
-                    console.log('🔴 IS ARRAY?', Array.isArray(staffData));
-                    console.log('🔴 LENGTH:', staffData?.length);
-                    if (Array.isArray(staffData) && staffData.length > 0) {
-                        console.log('🔴 FIRST STAFF:', staffData[0]);
-                    }
 
                     if (isMounted) {
                         setFacility(facilityData);
@@ -57,6 +50,7 @@ export const StaffManagement: React.FC = () => {
             } catch (error) {
                 if (isMounted) {
                     toast.error('Failed to load staff data');
+                    console.error('Staff load error:', error);
                 }
             } finally {
                 if (isMounted) {
@@ -79,7 +73,7 @@ export const StaffManagement: React.FC = () => {
                 const [facilityData, staffData, usersData, deptData] = await Promise.all([
                     adminService.getFacility(facilityId),
                     adminService.getStaffByFacility(facilityId),
-                    adminService.getUsers(),
+                    adminService.getUsers().catch(() => []),
                     adminService.getDepartmentsByFacility(facilityId)
                 ]);
                 setFacility(facilityData);
@@ -89,6 +83,7 @@ export const StaffManagement: React.FC = () => {
             }
         } catch (error) {
             toast.error('Failed to load staff data');
+            console.error('Load error:', error);
         } finally {
             setIsLoading(false);
         }
@@ -106,6 +101,7 @@ export const StaffManagement: React.FC = () => {
             return;
         }
 
+        setIsSubmitting(true);
         try {
             // 1. Assign staff to facility
             await adminService.assignStaff(
@@ -120,25 +116,32 @@ export const StaffManagement: React.FC = () => {
                 await adminService.assignDoctorToDepartment(selectedUser, selectedDepartment);
             }
 
-            toast.success('Staff assigned successfully!');
+            toast.success('✅ Staff assigned successfully!');
             setShowModal(false);
             setSelectedUser('');
             setSelectedDepartment('');
             setSelectedRole('DOCTOR');
-            loadData();
+            await loadData();
         } catch (error: any) {
-            toast.error(error.response?.data?.message || 'Assignment failed');
+            const errorMsg = error.response?.data?.message || error.message || 'Assignment failed';
+            toast.error(`❌ ${errorMsg}`);
+            console.error('Assign error:', error);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
     const handleRemove = async (userId: string) => {
-        if (!confirm('Remove this staff member from the facility?')) return;
+        if (!confirm(`Remove this staff member from ${facility?.name || 'the facility'}?`)) return;
+
         try {
             await adminService.removeStaff(userId, facilityId!);
-            toast.success('Staff removed successfully');
-            loadData();
+            toast.success('✅ Staff removed successfully');
+            await loadData();
         } catch (error: any) {
-            toast.error(error.response?.data?.message || 'Removal failed');
+            const errorMsg = error.response?.data?.message || error.message || 'Removal failed';
+            toast.error(`❌ ${errorMsg}`);
+            console.error('Remove error:', error);
         }
     };
 
@@ -176,7 +179,7 @@ export const StaffManagement: React.FC = () => {
                     </div>
                     <button
                         onClick={() => navigate('/admin/dashboard')}
-                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
                     >
                         ← Back to Dashboard
                     </button>
@@ -190,7 +193,7 @@ export const StaffManagement: React.FC = () => {
                             setSelectedRole('DOCTOR');
                             setShowModal(true);
                         }}
-                        className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                        className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
                     >
                         + Assign Staff
                     </button>
@@ -198,36 +201,40 @@ export const StaffManagement: React.FC = () => {
 
                 <div className="space-y-2">
                     {!staff || staff.length === 0 ? (
-                        <p className="text-gray-500 text-center py-8">No staff assigned to this facility</p>
+                        <div className="text-center py-12">
+                            <p className="text-gray-500">No staff assigned to this facility</p>
+                            <p className="text-sm text-gray-400 mt-1">Click "Assign Staff" to add someone</p>
+                        </div>
                     ) : (
                         staff.map((person) => (
                             <div
                                 key={person.id}
-                                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors"
                             >
                                 <div>
-                                    <div className="flex items-center space-x-3">
+                                    <div className="flex items-center space-x-3 flex-wrap gap-1">
                                         <span className="font-medium text-gray-900">
                                             {person.firstName} {person.lastName}
                                         </span>
                                         <span className={`text-xs px-2 py-0.5 rounded-full ${
                                             person.role === 'DOCTOR' ? 'bg-blue-100 text-blue-800' :
                                                 person.role === 'FACILITY_ADMIN' ? 'bg-purple-100 text-purple-800' :
-                                                    'bg-gray-100 text-gray-800'
+                                                    person.role === 'STAFF' ? 'bg-green-100 text-green-800' :
+                                                        'bg-gray-100 text-gray-800'
                                         }`}>
                                             {person.role}
                                         </span>
                                         <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                            person.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                            person.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                                         }`}>
-                                            {person.active ? 'Active' : 'Inactive'}
+                                            {person.active ? '🟢 Active' : '🔴 Inactive'}
                                         </span>
                                     </div>
                                     <p className="text-sm text-gray-500">{person.email}</p>
                                 </div>
                                 <button
                                     onClick={() => handleRemove(person.id)}
-                                    className="text-red-600 hover:text-red-800 text-sm"
+                                    className="text-red-600 hover:text-red-800 text-sm font-medium hover:underline"
                                 >
                                     Remove
                                 </button>
@@ -235,12 +242,19 @@ export const StaffManagement: React.FC = () => {
                         ))
                     )}
                 </div>
+
+                {/* Staff Count */}
+                {staff && staff.length > 0 && (
+                    <div className="mt-4 text-sm text-gray-500">
+                        Total: {staff.length} staff member{staff.length !== 1 ? 's' : ''}
+                    </div>
+                )}
             </div>
 
             {/* Assign Modal */}
             {showModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Assign Staff</h2>
                         <form onSubmit={handleAssign}>
                             <div className="space-y-4">
@@ -251,22 +265,39 @@ export const StaffManagement: React.FC = () => {
                                         value={selectedUser}
                                         onChange={(e) => setSelectedUser(e.target.value)}
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                        disabled={isSubmitting}
                                     >
                                         <option value="">Select a user...</option>
-                                        {getAvailableUsers().map((u) => (
-                                            <option key={u.id} value={u.id}>
-                                                {u.firstName} {u.lastName} ({u.email})
-                                            </option>
-                                        ))}
+                                        {getAvailableUsers().length === 0 ? (
+                                            <option value="" disabled>No available users</option>
+                                        ) : (
+                                            getAvailableUsers().map((u) => (
+                                                <option key={u.id} value={u.id}>
+                                                    {u.firstName} {u.lastName} ({u.email})
+                                                </option>
+                                            ))
+                                        )}
                                     </select>
+                                    {getAvailableUsers().length === 0 && (
+                                        <p className="text-xs text-amber-600 mt-1">
+                                            ⚠️ No available users. All eligible users are already assigned.
+                                        </p>
+                                    )}
                                 </div>
+
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700">Role *</label>
                                     <select
                                         required
                                         value={selectedRole}
-                                        onChange={(e) => setSelectedRole(e.target.value)}
+                                        onChange={(e) => {
+                                            setSelectedRole(e.target.value);
+                                            if (e.target.value !== 'DOCTOR') {
+                                                setSelectedDepartment('');
+                                            }
+                                        }}
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                        disabled={isSubmitting}
                                     >
                                         <option value="DOCTOR">Doctor</option>
                                         <option value="STAFF">Staff</option>
@@ -284,6 +315,7 @@ export const StaffManagement: React.FC = () => {
                                                 value={selectedDepartment}
                                                 onChange={(e) => setSelectedDepartment(e.target.value)}
                                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                                disabled={isSubmitting}
                                             >
                                                 <option value="">Select a department...</option>
                                                 {departments.map((dept) => (
@@ -302,12 +334,18 @@ export const StaffManagement: React.FC = () => {
                                     </div>
                                 )}
                             </div>
+
                             <div className="mt-6 flex space-x-3">
                                 <button
                                     type="submit"
-                                    className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                                    disabled={isSubmitting || (selectedRole === 'DOCTOR' && !selectedDepartment)}
+                                    className={`flex-1 py-2 px-4 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors ${
+                                        (isSubmitting || (selectedRole === 'DOCTOR' && !selectedDepartment))
+                                            ? 'opacity-50 cursor-not-allowed'
+                                            : ''
+                                    }`}
                                 >
-                                    Assign
+                                    {isSubmitting ? 'Assigning...' : 'Assign'}
                                 </button>
                                 <button
                                     type="button"
@@ -316,7 +354,8 @@ export const StaffManagement: React.FC = () => {
                                         setSelectedUser('');
                                         setSelectedDepartment('');
                                     }}
-                                    className="flex-1 py-2 px-4 border border-gray-300 rounded-md hover:bg-gray-50"
+                                    className="flex-1 py-2 px-4 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                                    disabled={isSubmitting}
                                 >
                                     Cancel
                                 </button>

@@ -25,7 +25,6 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin")
-@PreAuthorize("hasRole('DISTRICT_ADMIN')")
 @RequiredArgsConstructor
 @Slf4j
 public class AdminController {
@@ -44,6 +43,7 @@ public class AdminController {
     // ==================== FACILITY MANAGEMENT ====================
 
     @PostMapping("/facilities")
+    @PreAuthorize("hasRole('DISTRICT_ADMIN')")
     public ResponseEntity<?> createFacility(@RequestBody Facility facility,
                                             Authentication auth, HttpServletRequest request) {
         Facility created = adminService.createFacility(facility, auth.getName(), getClientIp(request));
@@ -54,6 +54,7 @@ public class AdminController {
     }
 
     @PutMapping("/facilities/{facilityId}")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> updateFacility(
             @PathVariable UUID facilityId,
             @RequestBody Facility facility,
@@ -66,6 +67,7 @@ public class AdminController {
     }
 
     @DeleteMapping("/facilities/{facilityId}")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> deleteFacility(@PathVariable UUID facilityId,
                                             Authentication auth, HttpServletRequest request) {
         adminService.deleteFacility(facilityId, auth.getName(), getClientIp(request));
@@ -75,6 +77,7 @@ public class AdminController {
     }
 
     @GetMapping("/facilities")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> getAllFacilities() {
         List<Facility> facilities = adminService.getAllFacilities();
         return ResponseEntity.ok(Map.of(
@@ -84,6 +87,7 @@ public class AdminController {
     }
 
     @GetMapping("/facilities/{facilityId}")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> getFacility(@PathVariable UUID facilityId) {
         Facility facility = adminService.getFacilityById(facilityId);
         return ResponseEntity.ok(facility);
@@ -92,6 +96,7 @@ public class AdminController {
     // ==================== DEPARTMENT MANAGEMENT ====================
 
     @PostMapping("/departments")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> createDepartment(@RequestBody Department department,
                                               Authentication auth, HttpServletRequest request) {
         Department created = adminService.createDepartment(department, auth.getName(), getClientIp(request));
@@ -102,6 +107,7 @@ public class AdminController {
     }
 
     @PutMapping("/departments/{departmentId}")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> updateDepartment(
             @PathVariable UUID departmentId,
             @RequestBody Department department,
@@ -114,6 +120,7 @@ public class AdminController {
     }
 
     @GetMapping("/facilities/{facilityId}/departments")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN', 'DOCTOR')")
     public ResponseEntity<?> getDepartmentsByFacility(@PathVariable UUID facilityId) {
         List<DepartmentDTO> departments = adminService.getDepartmentsByFacility(facilityId);
         return ResponseEntity.ok(Map.of(
@@ -125,6 +132,7 @@ public class AdminController {
     // ==================== STAFF MANAGEMENT ====================
 
     @PostMapping("/staff/assign")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> assignStaff(
             @RequestParam UUID userId,
             @RequestParam UUID facilityId,
@@ -140,6 +148,7 @@ public class AdminController {
     }
 
     @PostMapping("/staff/remove")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> removeStaff(
             @RequestParam UUID userId,
             @RequestParam UUID facilityId,
@@ -152,8 +161,10 @@ public class AdminController {
     }
 
     @GetMapping("/facilities/{facilityId}/staff")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> getStaffByFacility(@PathVariable UUID facilityId) {
-        List<User> staff = adminService.getStaffByFacility(facilityId);
+        // 🔥 FIXED: Return DTOs instead of full User objects
+        List<UserSummaryDTO> staff = adminService.getStaffByFacility(facilityId);
         return ResponseEntity.ok(Map.of(
                 "staff", staff,
                 "count", staff.size()
@@ -161,6 +172,7 @@ public class AdminController {
     }
 
     @PostMapping("/doctors/department/assign")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> assignDoctorToDepartment(
             @RequestParam UUID doctorId,
             @RequestParam UUID departmentId,
@@ -173,6 +185,7 @@ public class AdminController {
     }
 
     @PostMapping("/doctors/department/remove")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> removeDoctorFromDepartment(
             @RequestParam UUID doctorId,
             @RequestParam UUID departmentId,
@@ -185,8 +198,10 @@ public class AdminController {
     }
 
     @GetMapping("/departments/{departmentId}/doctors")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN', 'DOCTOR')")
     public ResponseEntity<?> getDoctorsByDepartment(@PathVariable UUID departmentId) {
-        List<User> doctors = adminService.getDoctorsByDepartment(departmentId);
+        // 🔥 FIXED: Return DTOs instead of full User objects
+        List<UserSummaryDTO> doctors = adminService.getDoctorsByDepartment(departmentId);
         return ResponseEntity.ok(Map.of(
                 "doctors", doctors,
                 "count", doctors.size()
@@ -194,6 +209,7 @@ public class AdminController {
     }
 
     @PutMapping("/doctors/{doctorId}/primary-department")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> setPrimaryDepartment(
             @PathVariable UUID doctorId,
             @RequestParam UUID departmentId,
@@ -213,75 +229,10 @@ public class AdminController {
         ));
     }
 
-    // ==================== TELEMETRY ====================
-
-    @GetMapping("/telemetry")
-    public ResponseEntity<?> getTelemetry() {
-        Map<String, Object> telemetry = adminService.getMultiFacilityTelemetry();
-        return ResponseEntity.ok(telemetry);
-    }
-
-    @GetMapping("/telemetry/facility/{facilityId}")
-    public ResponseEntity<?> getFacilityTelemetry(@PathVariable UUID facilityId) {
-        Facility facility = adminService.getFacilityById(facilityId);
-        Map<String, Object> metrics = adminService.getFacilityMetrics(facility);
-        return ResponseEntity.ok(metrics);
-    }
-
-    // ==================== FINANCIAL MANAGEMENT ====================
-
-    @GetMapping("/financial/summary/{facilityId}")
-    public ResponseEntity<?> getFacilitySummary(@PathVariable UUID facilityId, Authentication auth) {
-        log.info("📊 Getting financial summary for facility: {}", facilityId);
-        Map<String, Object> summary = adminService.getFacilityFinancialSummary(facilityId);
-        return ResponseEntity.ok(summary);
-    }
-
-    @GetMapping("/financial/claims")
-    public ResponseEntity<?> getInsuranceClaims(Authentication auth) {
-        log.info("📋 Getting insurance claims summary");
-        List<Map<String, Object>> claims = adminService.getInsuranceClaimsSummary();
-        return ResponseEntity.ok(claims);
-    }
-
-    @GetMapping("/reports")
-    public ResponseEntity<?> generateReport(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate,
-            @RequestParam(required = false) UUID facilityId,
-            Authentication auth) {
-
-        log.info("📊 Generating report - facilityId: {}, start: {}, end: {}", facilityId, startDate, endDate);
-        Map<String, Object> report = adminService.generateFinancialReport(startDate, endDate, facilityId);
-        return ResponseEntity.ok(report);
-    }
-
-    @GetMapping("/revenue")
-    public ResponseEntity<?> getRevenueAnalysis(
-            @RequestParam(required = false) UUID facilityId,
-            @RequestParam(required = false) String period,
-            Authentication auth) {
-
-        log.info("📈 Getting revenue analysis - facilityId: {}, period: {}", facilityId, period);
-        Map<String, Object> analysis = adminService.getRevenueAnalysis(facilityId, period);
-        return ResponseEntity.ok(analysis);
-    }
-
-    @GetMapping("/claims")
-    public ResponseEntity<?> getClaims(
-            @RequestParam(required = false) String insuranceType,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) UUID facilityId,
-            Authentication auth) {
-
-        log.info("📋 Getting claims - insuranceType: {}, status: {}, facilityId: {}", insuranceType, status, facilityId);
-        Map<String, Object> claims = adminService.getClaims(insuranceType, status, facilityId);
-        return ResponseEntity.ok(claims);
-    }
-
     // ==================== USER MANAGEMENT ====================
 
     @GetMapping("/users")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> getAllUsers() {
         List<UserSummaryDTO> users = adminService.getAllUserSummaries();
         return ResponseEntity.ok(Map.of(
@@ -291,6 +242,7 @@ public class AdminController {
     }
 
     @PostMapping("/users")
+    @PreAuthorize("hasRole('DISTRICT_ADMIN')")
     public ResponseEntity<?> createUserByAdmin(@Valid @RequestBody AdminCreateUserRequest createRequest,
                                                Authentication auth, HttpServletRequest request) {
         User user = adminService.createUserWithRole(createRequest, auth.getName(), getClientIp(request));
@@ -301,6 +253,7 @@ public class AdminController {
     }
 
     @PutMapping("/users/{userId}/role")
+    @PreAuthorize("hasRole('DISTRICT_ADMIN')")
     public ResponseEntity<?> updateUserRole(
             @PathVariable UUID userId,
             @RequestParam String role,
@@ -314,6 +267,7 @@ public class AdminController {
     }
 
     @PostMapping("/users/{userId}/toggle-active")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
     public ResponseEntity<?> toggleUserActive(@PathVariable UUID userId,
                                               Authentication auth, HttpServletRequest request) {
         User user = adminService.toggleUserActive(userId, auth.getName(), getClientIp(request));
@@ -321,6 +275,79 @@ public class AdminController {
                 "message", "User active status toggled",
                 "user", user
         ));
+    }
+
+    // ==================== TELEMETRY ====================
+
+    @GetMapping("/telemetry")
+    @PreAuthorize("hasRole('DISTRICT_ADMIN')")
+    public ResponseEntity<?> getTelemetry() {
+        Map<String, Object> telemetry = adminService.getMultiFacilityTelemetry();
+        return ResponseEntity.ok(telemetry);
+    }
+
+    @GetMapping("/telemetry/facility/{facilityId}")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
+    public ResponseEntity<?> getFacilityTelemetry(@PathVariable UUID facilityId) {
+        Facility facility = adminService.getFacilityById(facilityId);
+        Map<String, Object> metrics = adminService.getFacilityMetrics(facility);
+        return ResponseEntity.ok(metrics);
+    }
+
+    // ==================== FINANCIAL MANAGEMENT ====================
+
+    @GetMapping("/financial/summary/{facilityId}")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
+    public ResponseEntity<?> getFacilitySummary(@PathVariable UUID facilityId, Authentication auth) {
+        log.info("📊 Getting financial summary for facility: {}", facilityId);
+        Map<String, Object> summary = adminService.getFacilityFinancialSummary(facilityId);
+        return ResponseEntity.ok(summary);
+    }
+
+    @GetMapping("/financial/claims")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
+    public ResponseEntity<?> getInsuranceClaims(Authentication auth) {
+        log.info("📋 Getting insurance claims summary");
+        List<Map<String, Object>> claims = adminService.getInsuranceClaimsSummary();
+        return ResponseEntity.ok(claims);
+    }
+
+    @GetMapping("/reports")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
+    public ResponseEntity<?> generateReport(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) UUID facilityId,
+            Authentication auth) {
+
+        log.info("📊 Generating report - facilityId: {}, start: {}, end: {}", facilityId, startDate, endDate);
+        Map<String, Object> report = adminService.generateFinancialReport(startDate, endDate, facilityId);
+        return ResponseEntity.ok(report);
+    }
+
+    @GetMapping("/revenue")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
+    public ResponseEntity<?> getRevenueAnalysis(
+            @RequestParam(required = false) UUID facilityId,
+            @RequestParam(required = false) String period,
+            Authentication auth) {
+
+        log.info("📈 Getting revenue analysis - facilityId: {}, period: {}", facilityId, period);
+        Map<String, Object> analysis = adminService.getRevenueAnalysis(facilityId, period);
+        return ResponseEntity.ok(analysis);
+    }
+
+    @GetMapping("/claims")
+    @PreAuthorize("hasAnyRole('DISTRICT_ADMIN', 'FACILITY_ADMIN')")
+    public ResponseEntity<?> getClaims(
+            @RequestParam(required = false) String insuranceType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) UUID facilityId,
+            Authentication auth) {
+
+        log.info("📋 Getting claims - insuranceType: {}, status: {}, facilityId: {}", insuranceType, status, facilityId);
+        Map<String, Object> claims = adminService.getClaims(insuranceType, status, facilityId);
+        return ResponseEntity.ok(claims);
     }
 
     // ==================== INSURANCE PROVIDER MANAGEMENT ====================
@@ -436,6 +463,7 @@ public class AdminController {
     // ==================== AUDIT LOGS ====================
 
     @GetMapping("/audit")
+    @PreAuthorize("hasRole('DISTRICT_ADMIN')")
     public ResponseEntity<?> getAuditLogs(
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String entityType,

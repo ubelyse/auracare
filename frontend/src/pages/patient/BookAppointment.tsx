@@ -2,18 +2,44 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { appointmentService } from '../../services/appointment';
+import { appointmentService, Appointment } from '../../services/appointment';
 import { ticketService } from '../../services/ticket';
 import { Department } from '../../services/admin';
 import { useAuthStore } from '../../stores/authStore';
+
+// ===== ADD: Facility interface =====
+interface Facility {
+    id: string;
+    name: string;
+    code: string;
+    active: boolean;
+}
+
+// ===== ADD: Doctor interface =====
+interface Doctor {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+}
+
+// ===== ADD: Department interface with availableDoctors =====
+interface DepartmentWithDoctors {
+    id: string;
+    name: string;
+    code: string;
+    description: string;
+    active: boolean;
+    availableDoctors: Doctor[];
+}
 
 export const BookAppointment: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuthStore();
     const [isLoading, setIsLoading] = useState(false);
-    const [facilities, setFacilities] = useState<any[]>([]);
-    const [departments, setDepartments] = useState<Department[]>([]);
-    const [doctors, setDoctors] = useState<any[]>([]);
+    const [facilities, setFacilities] = useState<Facility[]>([]);
+    const [departments, setDepartments] = useState<DepartmentWithDoctors[]>([]);
+    const [doctors, setDoctors] = useState<Doctor[]>([]);
     const [hasActiveTicket, setHasActiveTicket] = useState(false);
     const [formData, setFormData] = useState({
         facilityId: '',
@@ -30,7 +56,7 @@ export const BookAppointment: React.FC = () => {
     }, []);
 
     // ===== ADD: Check if patient has active ticket =====
-    const checkActiveTicket = async () => {
+    const checkActiveTicket = async (): Promise<void> => {
         try {
             const hasActive = await ticketService.hasActiveTicket();
             setHasActiveTicket(hasActive);
@@ -57,7 +83,7 @@ export const BookAppointment: React.FC = () => {
         }
     }, [formData.departmentId]);
 
-    const loadFacilities = async () => {
+    const loadFacilities = async (): Promise<void> => {
         try {
             const data = await ticketService.getFacilities();
             setFacilities(data || []);
@@ -66,7 +92,7 @@ export const BookAppointment: React.FC = () => {
         }
     };
 
-    const loadDepartments = async (facilityId: string) => {
+    const loadDepartments = async (facilityId: string): Promise<void> => {
         try {
             const data = await ticketService.getDepartmentsWithDoctors(facilityId);
             setDepartments(data || []);
@@ -75,17 +101,18 @@ export const BookAppointment: React.FC = () => {
         }
     };
 
-    const loadDoctors = async (departmentId: string) => {
+    const loadDoctors = async (departmentId: string): Promise<void> => {
         try {
             const data = await ticketService.getAvailableDoctors(departmentId);
             setDoctors(data || []);
         } catch (error) {
             // Silent fail - doctors are optional
+            setDoctors([]);
         }
     };
 
     // ===== VALIDATION: Check if time is in the past =====
-    const isTimeInPast = (date: string, time: string) => {
+    const isTimeInPast = (date: string, time: string): boolean => {
         const selectedDateTime = new Date(`${date}T${time}`);
         const now = new Date();
 
@@ -96,7 +123,7 @@ export const BookAppointment: React.FC = () => {
     };
 
     // ===== VALIDATION: Check if time is within working hours =====
-    const isValidWorkingHours = (time: string) => {
+    const isValidWorkingHours = (time: string): boolean => {
         const hour = parseInt(time.split(':')[0]);
         const minutes = parseInt(time.split(':')[1]);
 
@@ -107,29 +134,44 @@ export const BookAppointment: React.FC = () => {
     };
 
     // ===== VALIDATION: Check if date is in the past =====
-    const isDateInPast = (date: string) => {
+    const isDateInPast = (date: string): boolean => {
         const selectedDate = new Date(date);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return selectedDate < today;
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent): Promise<void> => {
         e.preventDefault();
 
-        // ... all your validations ...
+        // ===== VALIDATE: Date not in past =====
+        if (isDateInPast(formData.appointmentDate)) {
+            toast.error('Cannot book appointments in the past');
+            return;
+        }
+
+        // ===== VALIDATE: Time within working hours =====
+        if (!isValidWorkingHours(formData.appointmentTime)) {
+            toast.error('Please select a time between 8:00 AM and 5:00 PM');
+            return;
+        }
+
+        // ===== VALIDATE: Time not in past for today =====
+        if (isTimeInPast(formData.appointmentDate, formData.appointmentTime)) {
+            toast.error('Cannot book a time that has already passed today');
+            return;
+        }
 
         setIsLoading(true);
         try {
-            // DON'T create a Date object and use toISOString()
-            // Just send the local time string directly
+            // Send local time string without timezone conversion
             const localDateTime = `${formData.appointmentDate}T${formData.appointmentTime}:00`;
 
             const response = await appointmentService.bookAppointment(
                 formData.facilityId,
                 formData.departmentId,
                 formData.doctorId || null,
-                localDateTime  // Send as local time string
+                localDateTime
             );
 
             toast.success(`Appointment booked for ${formData.appointmentDate} at ${formData.appointmentTime}`);
@@ -141,9 +183,30 @@ export const BookAppointment: React.FC = () => {
         }
     };
 
-    const getMinDate = () => {
+    const getMinDate = (): string => {
         const today = new Date();
         return today.toISOString().split('T')[0];
+    };
+
+    // ===== HELPER: Get facility name =====
+    const getFacilityName = (facilityId: string): string => {
+        const facility = facilities.find(f => f.id === facilityId);
+        return facility?.name || 'Selected';
+    };
+
+    // ===== HELPER: Get department name =====
+    const getDepartmentName = (departmentId: string): string => {
+        const department = departments.find(d => d.id === departmentId);
+        return department?.name || 'Selected';
+    };
+
+    // ===== HELPER: Get doctor name =====
+    const getDoctorName = (doctorId: string): string => {
+        const doctor = doctors.find(d => d.id === doctorId);
+        if (doctor) {
+            return `Dr. ${doctor.firstName} ${doctor.lastName}`;
+        }
+        return '';
     };
 
     return (
@@ -202,7 +265,7 @@ export const BookAppointment: React.FC = () => {
                         <select
                             required
                             value={formData.facilityId}
-                            onChange={(e) => setFormData({ ...formData, facilityId: e.target.value, departmentId: '' })}
+                            onChange={(e) => setFormData({ ...formData, facilityId: e.target.value, departmentId: '', doctorId: '' })}
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                             disabled={hasActiveTicket}
                         >
@@ -223,7 +286,7 @@ export const BookAppointment: React.FC = () => {
                         <select
                             required
                             value={formData.departmentId}
-                            onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
+                            onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, doctorId: '' })}
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                             disabled={!formData.facilityId || hasActiveTicket}
                         >
@@ -306,10 +369,10 @@ export const BookAppointment: React.FC = () => {
                         <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                             <p className="text-sm font-medium text-blue-800">Appointment Summary:</p>
                             <ul className="text-sm text-blue-700 mt-1 space-y-1">
-                                <li>🏥 {facilities.find(f => f.id === formData.facilityId)?.name || 'Selected'}</li>
-                                <li>📋 {departments.find(d => d.id === formData.departmentId)?.name || 'Selected'}</li>
+                                <li>🏥 {getFacilityName(formData.facilityId)}</li>
+                                <li>📋 {getDepartmentName(formData.departmentId)}</li>
                                 {formData.doctorId && (
-                                    <li>👨‍⚕️ {doctors.find(d => d.id === formData.doctorId)?.firstName} {doctors.find(d => d.id === formData.doctorId)?.lastName}</li>
+                                    <li>👨‍⚕️ {getDoctorName(formData.doctorId)}</li>
                                 )}
                                 <li>📅 {new Date(`${formData.appointmentDate}T${formData.appointmentTime}`).toLocaleString()}</li>
                             </ul>
