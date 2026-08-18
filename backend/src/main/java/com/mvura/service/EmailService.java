@@ -2,6 +2,9 @@ package com.mvura.service;
 
 import com.mvura.model.Appointment;
 import com.mvura.model.User;
+import com.resend.Resend;
+import com.resend.services.emails.model.CreateEmailOptions;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +27,9 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
 
+    @Value("${resend.api.key:}")
+    private String resendApiKey;
+
     @Value("${app.email.from:noreply@mvura.com}")
     private String fromEmail;
 
@@ -32,6 +38,18 @@ public class EmailService {
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
+
+    private Resend resend;
+
+    @PostConstruct
+    public void init() {
+        if (resendApiKey != null && !resendApiKey.trim().isEmpty()) {
+            this.resend = new Resend(resendApiKey.trim());
+            log.info("Resend HTTP API initialized for email service.");
+        } else {
+            log.warn("Resend API key not found. Falling back to JavaMailSender (SMTP).");
+        }
+    }
 
     private static final DateTimeFormatter DATE_FORMATTER =
             DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy 'at' h:mm a");
@@ -60,7 +78,7 @@ public class EmailService {
             String resetLink = frontendUrl + "/reset-password?token=" + token;
             String emailBody = buildPasswordResetEmailBody(user, resetLink);
 
-            sendHtmlEmail(user.getEmail(), "MVURA - Password Reset Request", emailBody);
+            sendHtmlEmail(user.getEmail(), "AuraCare - Password Reset Request", emailBody);
             log.info("Password reset email sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
@@ -76,7 +94,7 @@ public class EmailService {
             String loginLink = frontendUrl + "/login";
             String emailBody = buildWelcomeEmailBody(user, loginLink);
 
-            sendHtmlEmail(user.getEmail(), "Welcome to MVURA Health Platform!", emailBody);
+            sendHtmlEmail(user.getEmail(), "Welcome to AuraCare Health Platform!", emailBody);
             log.info("Welcome email sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
@@ -95,7 +113,7 @@ public class EmailService {
 
             sendHtmlEmail(
                     appointment.getPatient().getEmail(),
-                    "MVURA - Appointment Reminder",
+                    "Auracare - Appointment Reminder",
                     emailBody
             );
             log.info("Appointment reminder sent to: {}", appointment.getPatient().getEmail());
@@ -126,7 +144,7 @@ public class EmailService {
 
             sendHtmlEmail(
                     appointment.getPatient().getEmail(),
-                    "MVURA - Time to Check In!",
+                    "Auracare - Time to Check In!",
                     emailBody
             );
             log.info("Check-in reminder sent to: {}", appointment.getPatient().getEmail());
@@ -157,7 +175,7 @@ public class EmailService {
 
             sendHtmlEmail(
                     patient.getEmail(),
-                    "MVURA - Follow-up Appointment Reminder",
+                    "Auracare - Follow-up Appointment Reminder",
                     emailBody
             );
             log.info("Follow-up reminder sent to: {}", patient.getEmail());
@@ -186,7 +204,7 @@ public class EmailService {
 
             sendHtmlEmail(
                     user.getEmail(),
-                    "MVURA - Security Alert: New Login Detected",
+                    "Auracare - Security Alert: New Login Detected",
                     emailBody
             );
             log.info("Suspicious login alert sent to: {}", user.getEmail());
@@ -208,26 +226,36 @@ public class EmailService {
         }
 
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(fromEmail);
-            helper.setTo(recipients.get(0));
+            if (resend != null) {
+                for (String recipient : recipients) {
+                    CreateEmailOptions params = CreateEmailOptions.builder()
+                            .from(fromEmail)
+                            .to(recipient)
+                            .subject(subject)
+                            .html(body)
+                            .build();
+                    resend.emails().send(params);
+                }
+                log.info("Bulk email sent via Resend API to {} recipients", recipients.size());
+            } else {
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+                helper.setFrom(fromEmail);
+                helper.setTo(recipients.get(0));
 
-            // Add remaining recipients as BCC
-            if (recipients.size() > 1) {
-                helper.setBcc(recipients.stream().skip(1).toArray(String[]::new));
+                if (recipients.size() > 1) {
+                    helper.setBcc(recipients.stream().skip(1).toArray(String[]::new));
+                }
+
+                helper.setSubject(subject);
+                helper.setText(body, true);
+
+                mailSender.send(message);
+                log.info("Bulk email sent via SMTP to {} recipients", recipients.size());
             }
 
-            helper.setSubject(subject);
-            helper.setText(body, true);
-
-            mailSender.send(message);
-            log.info("Bulk email sent to {} recipients", recipients.size());
-
-        } catch (MessagingException e) {
-            log.error("Failed to send bulk email: {}", e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error sending bulk email: {}", e.getMessage(), e);
+            log.error("Failed to send bulk email: {}", e.getMessage(), e);
         }
     }
 
@@ -243,10 +271,24 @@ public class EmailService {
 
     // ==================== PUBLIC HELPER METHODS ====================
 
-    /**
-     * Sends an HTML email. This method is now PUBLIC so it can be called from AppointmentService.
-     */
     public void sendHtmlEmail(String to, String subject, String body) throws MessagingException {
+        if (resend != null) {
+            try {
+                CreateEmailOptions params = CreateEmailOptions.builder()
+                        .from(fromEmail)
+                        .to(to)
+                        .subject(subject)
+                        .html(body)
+                        .build();
+                resend.emails().send(params);
+                log.info("Email successfully sent via Resend API to: {}", to);
+                return;
+            } catch (Exception e) {
+                log.error("Resend API failed, falling back to SMTP for {}: {}", to, e.getMessage());
+            }
+        }
+
+        // Fallback or local dev SMTP implementation
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
         helper.setFrom(fromEmail);
@@ -289,11 +331,11 @@ public class EmailService {
             </head>
             <body>
                 <div class="header">
-                    <h1>Welcome to MVURA!</h1>
+                    <h1>Welcome to Auracare!</h1>
                 </div>
                 <div class="content">
                     <h2>Hello %s,</h2>
-                    <p>Thank you for registering with MVURA Health Platform.</p>
+                    <p>Thank you for registering with Aura care Health Platform.</p>
                     <p>Please verify your email address by clicking the button below:</p>
                     <p style="text-align: center;">
                         <a href="%s" class="button">Verify Email</a>
@@ -304,10 +346,10 @@ public class EmailService {
                     <p>If you did not create an account, please ignore this email.</p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Health Team</strong></p>
+                    <p><strong>Aura Health Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                     <p>This is an automated message, please do not reply.</p>
                 </div>
             </body>
@@ -340,7 +382,7 @@ public class EmailService {
                 </div>
                 <div class="content">
                     <h2>Hello %s,</h2>
-                    <p>We received a request to reset your password for your MVURA account.</p>
+                    <p>We received a request to reset your password for your Auracare account.</p>
                     <p>Click the button below to reset your password:</p>
                     <p style="text-align: center;">
                         <a href="%s" class="button">Reset Password</a>
@@ -351,10 +393,10 @@ public class EmailService {
                     <p>If you did not request a password reset, please ignore this email.</p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Health Team</strong></p>
+                    <p><strong>Aura Health Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                     <p>This is an automated message, please do not reply.</p>
                 </div>
             </body>
@@ -381,7 +423,7 @@ public class EmailService {
             </head>
             <body>
                 <div class="header">
-                    <h1>Welcome to MVURA!</h1>
+                    <h1>Welcome to Auracare!</h1>
                 </div>
                 <div class="content">
                     <h2>Hello %s,</h2>
@@ -396,15 +438,15 @@ public class EmailService {
                     <p>To get started, log in to your account:</p>
                     <p style="text-align: center;">
                         <a href="%s" style="display: inline-block; padding: 12px 24px; background: #22c55e; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                            Go to MVURA
+                            Go to Aura
                         </a>
                     </p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Health Team</strong></p>
+                    <p><strong>Aura Health Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
             </body>
             </html>
@@ -450,10 +492,10 @@ public class EmailService {
                     <p>Please arrive on time for your appointment.</p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Health Team</strong></p>
+                    <p><strong>Aura Health Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
             </body>
             </html>
@@ -499,10 +541,10 @@ public class EmailService {
                     <p><strong>Doctor:</strong> %s</p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Health Team</strong></p>
+                    <p><strong>Aura Health Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
             </body>
             </html>
@@ -541,10 +583,10 @@ public class EmailService {
                     <p>Please remember to bring any relevant medical records or test results.</p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Health Team</strong></p>
+                    <p><strong>Aura Health Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
             </body>
             </html>
@@ -576,7 +618,7 @@ public class EmailService {
                 </div>
                 <div class="content">
                     <h2>Hello %s,</h2>
-                    <p>We detected a new login to your MVURA account from an unrecognized device.</p>
+                    <p>We detected a new login to your Aura account from an unrecognized device.</p>
                     <div class="details">
                         <p><strong>Device:</strong> %s</p>
                         <p><strong>IP Address:</strong> %s</p>
@@ -590,10 +632,10 @@ public class EmailService {
                     </p>
                     <br>
                     <p>Best regards,</p>
-                    <p><strong>MVURA Security Team</strong></p>
+                    <p><strong>Aura Security Team</strong></p>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2026 MVURA Health Platform. All rights reserved.</p>
+                    <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
             </body>
             </html>
