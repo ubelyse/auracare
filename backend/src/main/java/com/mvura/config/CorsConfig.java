@@ -19,7 +19,7 @@ public class CorsConfig {
                                 "http://localhost:*"          // All local ports
                         )
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-                        .allowedHeaders("*")
+                        .allowedHeaders("*")  // <--- This allows ALL headers (X-Request-ID, etc.)
                         .allowCredentials(true)
                         .maxAge(3600);
             }

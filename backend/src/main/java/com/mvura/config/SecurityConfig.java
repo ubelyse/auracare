@@ -108,7 +108,6 @@ public class SecurityConfig {
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:3000",
                 "https://auracare-bydnts8jg-ubelyses-projects.vercel.app"
-
         ));
 
         configuration.setAllowedMethods(Arrays.asList(
@@ -119,6 +118,8 @@ public class SecurityConfig {
                 "OPTIONS",
                 "PATCH"
         ));
+
+        // ===== FULL LIST OF ALLOWED HEADERS =====
         configuration.setAllowedHeaders(Arrays.asList(
                 "Authorization",
                 "Content-Type",
@@ -127,8 +128,14 @@ public class SecurityConfig {
                 "Origin",
                 "Access-Control-Request-Method",
                 "Access-Control-Request-Headers",
-                "X-Request-ID"  // <--- ADD THIS LINE
+                "X-Request-ID",
+                "X-Content-Type-Options",
+                "X-Frame-Options",
+                "X-XSS-Protection",
+                "Referrer-Policy",
+                "Permissions-Policy"
         ));
+
         configuration.setExposedHeaders(Arrays.asList(
                 "Authorization",
                 "Content-Disposition"
@@ -140,5 +147,4 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-
 }

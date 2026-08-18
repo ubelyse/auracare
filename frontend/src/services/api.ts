@@ -10,7 +10,7 @@ interface CustomConfig extends InternalAxiosRequestConfig {
 const api = axios.create({
     // This line is the magic key for environment variables
     baseURL: import.meta.env.VITE_API_URL || '/api',
-    timeout: 30000, // 30 seconds timeout
+    timeout: 120000, // Increased to 2 minutes (120000ms) to accommodate Render free-tier cold starts
     headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
