@@ -48,9 +48,9 @@ public class EmailService {
             log.info("Verification email successfully sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send verification email to: {}", user.getEmail(), e);
+            log.error("Failed to send verification email to {}: {}", user.getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error occurred while sending verification email to: {}", user.getEmail(), e);
+            log.error("Unexpected error occurred while sending verification email to {}: {}", user.getEmail(), e.getMessage(), e);
         }
     }
 
@@ -64,9 +64,9 @@ public class EmailService {
             log.info("Password reset email sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send password reset email to: {}", user.getEmail(), e);
+            log.error("Failed to send password reset email to {}: {}", user.getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error occurred while sending password reset email to: {}", user.getEmail(), e);
+            log.error("Unexpected error occurred while sending password reset email to {}: {}", user.getEmail(), e.getMessage(), e);
         }
     }
 
@@ -80,9 +80,9 @@ public class EmailService {
             log.info("Welcome email sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send welcome email to: {}", user.getEmail(), e);
+            log.error("Failed to send welcome email to {}: {}", user.getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error occurred while sending welcome email to: {}", user.getEmail(), e);
+            log.error("Unexpected error occurred while sending welcome email to {}: {}", user.getEmail(), e.getMessage(), e);
         }
     }
 
@@ -101,11 +101,11 @@ public class EmailService {
             log.info("Appointment reminder sent to: {}", appointment.getPatient().getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send appointment reminder to: {}",
-                    appointment.getPatient().getEmail(), e);
+            log.error("Failed to send appointment reminder to {}: {}",
+                    appointment.getPatient().getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error sending appointment reminder to: {}",
-                    appointment.getPatient().getEmail(), e);
+            log.error("Unexpected error sending appointment reminder to {}: {}",
+                    appointment.getPatient().getEmail(), e.getMessage(), e);
         }
     }
 
@@ -132,11 +132,11 @@ public class EmailService {
             log.info("Check-in reminder sent to: {}", appointment.getPatient().getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send check-in reminder to: {}",
-                    appointment.getPatient().getEmail(), e);
+            log.error("Failed to send check-in reminder to {}: {}",
+                    appointment.getPatient().getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error sending check-in reminder to: {}",
-                    appointment.getPatient().getEmail(), e);
+            log.error("Unexpected error sending check-in reminder to {}: {}",
+                    appointment.getPatient().getEmail(), e.getMessage(), e);
         }
     }
 
@@ -163,9 +163,9 @@ public class EmailService {
             log.info("Follow-up reminder sent to: {}", patient.getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send follow-up reminder to: {}", patient.getEmail(), e);
+            log.error("Failed to send follow-up reminder to {}: {}", patient.getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error sending follow-up reminder to: {}", patient.getEmail(), e);
+            log.error("Unexpected error sending follow-up reminder to {}: {}", patient.getEmail(), e.getMessage(), e);
         }
     }
 
@@ -192,9 +192,9 @@ public class EmailService {
             log.info("Suspicious login alert sent to: {}", user.getEmail());
 
         } catch (MessagingException e) {
-            log.error("Failed to send suspicious login alert to: {}", user.getEmail(), e);
+            log.error("Failed to send suspicious login alert to {}: {}", user.getEmail(), e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error sending suspicious login alert to: {}", user.getEmail(), e);
+            log.error("Unexpected error sending suspicious login alert to {}: {}", user.getEmail(), e.getMessage(), e);
         }
     }
 
@@ -225,9 +225,9 @@ public class EmailService {
             log.info("Bulk email sent to {} recipients", recipients.size());
 
         } catch (MessagingException e) {
-            log.error("Failed to send bulk email: {}", e.getMessage());
+            log.error("Failed to send bulk email: {}", e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error sending bulk email: {}", e.getMessage());
+            log.error("Unexpected error sending bulk email: {}", e.getMessage(), e);
         }
     }
 
