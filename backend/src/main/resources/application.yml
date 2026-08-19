@@ -75,8 +75,10 @@ logging:
 
 app:
   email:
-    from: ${MAIL_USERNAME:belyseuwamb@gmail.com}
+    from: ${APP_EMAIL_FROM:belyseuwamb@gmail.com}
     provider: ${APP_EMAIL_PROVIDER:gmail}
+  sendgrid:
+    api-key: ${SENDGRID_API_KEY:}
   api-url: ${API_URL:http://localhost:8080}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   mfa:

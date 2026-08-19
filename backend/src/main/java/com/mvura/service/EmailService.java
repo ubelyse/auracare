@@ -2,10 +2,16 @@ package com.mvura.service;
 
 import com.mvura.model.Appointment;
 import com.mvura.model.User;
-import com.resend.Resend;
-import com.resend.services.emails.model.CreateEmailOptions;
+import com.sendgrid.Method;
+import com.sendgrid.Request;
+import com.sendgrid.Response;
+import com.sendgrid.SendGrid;
+import com.sendgrid.helpers.mail.Mail;
+import com.sendgrid.helpers.mail.objects.Content;
+import com.sendgrid.helpers.mail.objects.Email;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -13,24 +19,18 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
-
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class EmailService {
 
     private final JavaMailSender mailSender;
 
-    @Value("${resend.api.key:}")
-    private String resendApiKey;
-
-    @Value("${app.email.from:onboarding@resend.dev}")
+    @Value("${app.email.from:belyseuwamb@gmail.com}")
     private String fromEmail;
 
     @Value("${app.api-url:http://localhost:8080}")
@@ -42,22 +42,29 @@ public class EmailService {
     @Value("${app.email.provider:gmail}")
     private String emailProvider;
 
-    private Resend resend;
+    @Value("${app.sendgrid.api-key:}")
+    private String sendGridApiKey;
+
+    private SendGrid sendGrid;
+
+    public EmailService(JavaMailSender mailSender) {
+        this.mailSender = mailSender;
+    }
 
     @PostConstruct
     public void init() {
-        // 🔥 FIXED: Only initialize Resend if provider is 'resend' AND API key exists
-        if ("resend".equalsIgnoreCase(emailProvider) && resendApiKey != null && !resendApiKey.trim().isEmpty()) {
+        // Initialize SendGrid only if provider is 'sendgrid' AND API key exists
+        if ("sendgrid".equalsIgnoreCase(emailProvider) && sendGridApiKey != null && !sendGridApiKey.trim().isEmpty()) {
             try {
-                this.resend = new Resend(resendApiKey.trim());
-                log.info("✅ Resend API initialized for email service (Render deployment)");
+                this.sendGrid = new SendGrid(sendGridApiKey.trim());
+                log.info("✅ SendGrid initialized for email service (Render deployment)");
             } catch (Exception e) {
-                log.warn("⚠️ Failed to initialize Resend: {}. Falling back to SMTP.", e.getMessage());
-                this.resend = null;
+                log.warn("⚠️ Failed to initialize SendGrid: {}. Falling back to SMTP.", e.getMessage());
+                this.sendGrid = null;
             }
         } else {
             log.info("✅ Using Gmail SMTP for email service (Local development)");
-            this.resend = null;
+            this.sendGrid = null;
         }
     }
 
@@ -236,17 +243,11 @@ public class EmailService {
         }
 
         try {
-            if (resend != null) {
+            if (sendGrid != null) {
                 for (String recipient : recipients) {
-                    CreateEmailOptions params = CreateEmailOptions.builder()
-                            .from(fromEmail)
-                            .to(recipient)
-                            .subject(subject)
-                            .html(body)
-                            .build();
-                    resend.emails().send(params);
+                    sendViaSendGrid(recipient, subject, body);
                 }
-                log.info("Bulk email sent via Resend API to {} recipients", recipients.size());
+                log.info("Bulk email sent via SendGrid to {} recipients", recipients.size());
             } else {
                 MimeMessage message = mailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -282,20 +283,14 @@ public class EmailService {
     // ==================== PUBLIC HELPER METHODS ====================
 
     public void sendHtmlEmail(String to, String subject, String body) throws MessagingException {
-        // 🔥 FIXED: Only use Resend if initialized
-        if (resend != null) {
+        // Try SendGrid first if initialized
+        if (sendGrid != null) {
             try {
-                CreateEmailOptions params = CreateEmailOptions.builder()
-                        .from(fromEmail)
-                        .to(to)
-                        .subject(subject)
-                        .html(body)
-                        .build();
-                resend.emails().send(params);
-                log.info("✅ Email sent via Resend API to: {}", to);
+                sendViaSendGrid(to, subject, body);
+                log.info("✅ Email sent via SendGrid to: {}", to);
                 return;
             } catch (Exception e) {
-                log.error("❌ Resend API failed for {}: {}. Falling back to SMTP.", to, e.getMessage());
+                log.error("❌ SendGrid failed for {}: {}. Falling back to SMTP.", to, e.getMessage());
                 // Fall through to SMTP
             }
         }
@@ -316,6 +311,27 @@ public class EmailService {
         }
     }
 
+    private void sendViaSendGrid(String to, String subject, String body) throws IOException {
+        Email from = new Email(fromEmail);
+        Email toEmail = new Email(to);
+        Content content = new Content("text/html", body);
+        Mail mail = new Mail(from, subject, toEmail, content);
+
+        Request request = new Request();
+        request.setMethod(Method.POST);
+        request.setEndpoint("mail/send");
+        request.setBody(mail.build());
+
+        Response response = sendGrid.api(request);
+
+        if (response.getStatusCode() >= 200 && response.getStatusCode() < 300) {
+            log.info("✅ Email sent via SendGrid to: {} (Status: {})", to, response.getStatusCode());
+        } else {
+            log.error("❌ SendGrid returned error: {} - {}", response.getStatusCode(), response.getBody());
+            throw new IOException("SendGrid error: " + response.getBody());
+        }
+    }
+
     // ==================== PRIVATE HELPER METHODS ====================
 
     private String getFullName(User user) {
@@ -331,6 +347,7 @@ public class EmailService {
     }
 
     // ==================== EMAIL BUILDERS ====================
+    // (Keep all your existing email builders - they remain unchanged)
 
     private String buildVerificationEmailBody(User user, String verificationLink) {
         return String.format("""
@@ -515,7 +532,6 @@ public class EmailService {
                 <div class="footer">
                     <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
-            </body>
             </html>
             """,
                 getFullName(patient),
@@ -564,7 +580,6 @@ public class EmailService {
                 <div class="footer">
                     <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
-            </body>
             </html>
             """,
                 getFullName(patient),
@@ -606,7 +621,6 @@ public class EmailService {
                 <div class="footer">
                     <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
-            </body>
             </html>
             """,
                 getFullName(patient),
@@ -655,7 +669,6 @@ public class EmailService {
                 <div class="footer">
                     <p>&copy; 2026 Aura Health Platform. All rights reserved.</p>
                 </div>
-            </body>
             </html>
             """,
                 getFullName(user),

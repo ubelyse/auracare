@@ -32,32 +32,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springdoc.version>2.5.0</springdoc.version>
         <kotlin.version>1.9.22</kotlin.version>
-        <okhttp.version>4.11.0</okhttp.version>  <!-- ✅ FIXED: Compatible with Resend -->
-        <resend.version>4.13.0</resend.version>
+        <sendgrid.version>4.10.3</sendgrid.version>
     </properties>
-
-    <!-- ===== FORCE DEPENDENCY VERSIONS ===== -->
-    <dependencyManagement>
-        <dependencies>
-            <!-- Force OkHttp 4.11.0 for Resend compatibility -->
-            <dependency>
-                <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp</artifactId>
-                <version>${okhttp.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>logging-interceptor</artifactId>
-                <version>${okhttp.version}</version>
-            </dependency>
-            <!-- Kotlin is required for OkHttp 4.x -->
-            <dependency>
-                <groupId>org.jetbrains.kotlin</groupId>
-                <artifactId>kotlin-stdlib</artifactId>
-                <version>${kotlin.version}</version>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
 
     <dependencies>
         <!-- ===== SPRING BOOT STARTERS ===== -->
@@ -181,7 +157,6 @@
         </dependency>
 
         <!-- ===== AFRICA'S TALKING USSD ===== -->
-        <!-- ✅ FIXED: Added exclusions for OkHttp to prevent conflicts -->
         <dependency>
             <groupId>com.github.AfricasTalkingLtd.africastalking-java</groupId>
             <artifactId>core</artifactId>
@@ -210,6 +185,13 @@
             <version>2.2.0</version>
         </dependency>
 
+        <!-- ===== SENDGRID ===== -->
+        <dependency>
+            <groupId>com.sendgrid</groupId>
+            <artifactId>sendgrid-java</artifactId>
+            <version>${sendgrid.version}</version>
+        </dependency>
+
         <!-- ===== TESTING ===== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -232,29 +214,6 @@
             <artifactId>postgresql</artifactId>
             <version>1.19.3</version>
             <scope>test</scope>
-        </dependency>
-
-        <!-- ===== RESEND ===== -->
-        <dependency>
-            <groupId>com.resend</groupId>
-            <artifactId>resend-java</artifactId>
-            <version>${resend.version}</version>
-        </dependency>
-
-        <!-- ===== OKHTTP ===== -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>logging-interceptor</artifactId>
-        </dependency>
-
-        <!-- ===== KOTLIN (Required for OkHttp 4.x) ===== -->
-        <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-stdlib</artifactId>
         </dependency>
     </dependencies>
 
