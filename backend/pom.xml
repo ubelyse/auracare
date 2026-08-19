@@ -32,14 +32,14 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springdoc.version>2.5.0</springdoc.version>
         <kotlin.version>1.9.22</kotlin.version>
-        <okhttp.version>4.12.0</okhttp.version>
+        <okhttp.version>4.11.0</okhttp.version>  <!-- ✅ FIXED: Compatible with Resend -->
         <resend.version>4.13.0</resend.version>
     </properties>
 
     <!-- ===== FORCE DEPENDENCY VERSIONS ===== -->
     <dependencyManagement>
         <dependencies>
-            <!-- Force OkHttp 4.x for Resend compatibility -->
+            <!-- Force OkHttp 4.11.0 for Resend compatibility -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
@@ -181,18 +181,29 @@
         </dependency>
 
         <!-- ===== AFRICA'S TALKING USSD ===== -->
+        <!-- ✅ FIXED: Added exclusions for OkHttp to prevent conflicts -->
         <dependency>
             <groupId>com.github.AfricasTalkingLtd.africastalking-java</groupId>
             <artifactId>core</artifactId>
             <version>3.4.11</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>okio</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
+        <!-- ===== RESILIENCE4J ===== -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-circuitbreaker</artifactId>
             <version>2.2.0</version>
         </dependency>
-
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-core</artifactId>
