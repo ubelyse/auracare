@@ -283,9 +283,15 @@ public class EmailService {
     // ==================== PUBLIC HELPER METHODS ====================
 
     public void sendHtmlEmail(String to, String subject, String body) throws MessagingException {
+        // 🔍 DEBUG: Log the state
+        log.info("🔍 sendHtmlEmail called. sendGrid is: {}", sendGrid != null ? "NOT NULL" : "NULL");
+        log.info("🔍 emailProvider is: {}", emailProvider);
+        log.info("🔍 sendGridApiKey is: {}", sendGridApiKey != null && !sendGridApiKey.isEmpty() ? "PRESENT" : "MISSING");
+
         // Try SendGrid first if initialized
         if (sendGrid != null) {
             try {
+                log.info("📤 Attempting to send via SendGrid to: {}", to);
                 sendViaSendGrid(to, subject, body);
                 log.info("✅ Email sent via SendGrid to: {}", to);
                 return;
@@ -293,6 +299,8 @@ public class EmailService {
                 log.error("❌ SendGrid failed for {}: {}. Falling back to SMTP.", to, e.getMessage());
                 // Fall through to SMTP
             }
+        } else {
+            log.warn("⚠️ SendGrid is NULL! Falling back to SMTP.");
         }
 
         // Fallback or local dev SMTP implementation
@@ -310,6 +318,35 @@ public class EmailService {
             throw new MessagingException("Failed to send email to " + to, e);
         }
     }
+
+//    public void sendHtmlEmail(String to, String subject, String body) throws MessagingException {
+//        // Try SendGrid first if initialized
+//        if (sendGrid != null) {
+//            try {
+//                sendViaSendGrid(to, subject, body);
+//                log.info("✅ Email sent via SendGrid to: {}", to);
+//                return;
+//            } catch (Exception e) {
+//                log.error("❌ SendGrid failed for {}: {}. Falling back to SMTP.", to, e.getMessage());
+//                // Fall through to SMTP
+//            }
+//        }
+//
+//        // Fallback or local dev SMTP implementation
+//        try {
+//            MimeMessage message = mailSender.createMimeMessage();
+//            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+//            helper.setFrom(fromEmail);
+//            helper.setTo(to);
+//            helper.setSubject(subject);
+//            helper.setText(body, true);
+//            mailSender.send(message);
+//            log.info("✅ Email sent via SMTP (Gmail) to: {}", to);
+//        } catch (Exception e) {
+//            log.error("❌ Failed to send email via SMTP to {}: {}", to, e.getMessage());
+//            throw new MessagingException("Failed to send email to " + to, e);
+//        }
+//    }
 
     private void sendViaSendGrid(String to, String subject, String body) throws IOException {
         Email from = new Email(fromEmail);
